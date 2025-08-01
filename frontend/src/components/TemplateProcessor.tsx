@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { templateApi } from '@/lib/api';
+import { API_BASE_URL } from '@/lib/constants';
 
 interface TemplateAnalysis {
   device_id: string;
@@ -11,6 +13,9 @@ interface TemplateAnalysis {
     can_fill: boolean;
     confidence: number;
     sources: number;
+    context?: string;
+    pattern_type?: string;
+    questions_generated?: number;
   }>;
 }
 
@@ -43,25 +48,17 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
     setAnalysis(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('device_id', deviceId);
-
-      const response = await fetch('http://localhost:8000/api/templates/analyze', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Analysis failed');
-      }
-
-      const result = await response.json();
+      console.log('Starting template analysis for device:', deviceId);
+      console.log('File:', file.name, 'Size:', file.size);
+      
+      const result = await templateApi.analyze(file, deviceId);
+      console.log('Analysis result:', result);
       setAnalysis(result);
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
+      console.error('Analysis error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Analysis failed';
+      setError(`Analysis failed: ${errorMessage}`);
     } finally {
       setAnalyzing(false);
     }
@@ -83,23 +80,26 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
     setDownloadUrl(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('device_id', deviceId);
-
-      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Processing failed');
+      console.log('Processing template:', file.name, 'for device:', deviceId);
+      const result = await templateApi.uploadAndFill(file, deviceId);
+      console.log('Processing result:', result);
+      
+      setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields || {}).length} fields.`);
+      
+      if (result.filled_template_url) {
+        // Extract filename from the URL and properly encode it
+        const urlPath = result.filled_template_url;
+        const filename = urlPath.split('/').pop() || '';
+        
+        // Create the download URL with proper encoding
+        const downloadPath = `/api/templates/download/${encodeURIComponent(filename)}`;
+        const fullUrl = `${API_BASE_URL}${downloadPath}`;
+        
+        console.log('Original URL:', result.filled_template_url);
+        console.log('Extracted filename:', filename);
+        console.log('Encoded download URL:', fullUrl);
+        setDownloadUrl(fullUrl);
       }
-
-      const result = await response.json();
-      setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
-      setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
       
       // Clear file input
       if (processInputRef.current) {
@@ -107,15 +107,34 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       }
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Processing failed');
+      console.error('Processing error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Processing failed';
+      setError(`Processing failed: ${errorMessage}`);
     } finally {
       setProcessing(false);
     }
   };
 
-  const downloadTemplate = () => {
-    if (downloadUrl) {
-      window.open(downloadUrl, '_blank');
+  const downloadTemplate = async () => {
+    if (!downloadUrl) return;
+    
+    try {
+      console.log('Attempting to download from:', downloadUrl);
+      
+      // Create a link element and trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      
+      // Trigger the download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (err) {
+      console.error('Download error:', err);
+      setError(`Download failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -185,23 +204,36 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
             <h4 className="font-medium text-gray-900">Field Details:</h4>
             <div className="space-y-2">
               {Object.entries(analysis.field_analysis).map(([field, details]) => (
-                <div key={field} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-3 h-3 rounded-full ${
-                      details.can_fill ? 'bg-green-500' : 'bg-red-500'
-                    }`}></div>
-                    <span className="font-medium">{field}</span>
+                <div key={field} className="p-3 bg-gray-50 rounded-md">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-3 h-3 rounded-full ${
+                        details.can_fill ? 'bg-green-500' : 'bg-red-500'
+                      }`}></div>
+                      <span className="font-medium">{field}</span>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {details.can_fill ? (
+                        <span>
+                          Confidence: {(details.confidence * 100).toFixed(1)}% 
+                          ({details.sources} sources)
+                        </span>
+                      ) : (
+                        <span>No matching content found</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-600">
-                    {details.can_fill ? (
-                      <span>
-                        Confidence: {(details.confidence * 100).toFixed(1)}% 
-                        ({details.sources} sources)
-                      </span>
-                    ) : (
-                      <span>No matching content found</span>
-                    )}
-                  </div>
+                  {details.context && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      <strong>Context:</strong> {details.context}
+                    </div>
+                  )}
+                  {details.pattern_type && (
+                    <div className="text-xs text-gray-400 mt-1">
+                      Pattern: {details.pattern_type}
+                      {details.questions_generated && ` • Generated ${details.questions_generated} questions`}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

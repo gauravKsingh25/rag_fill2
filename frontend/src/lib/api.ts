@@ -1,4 +1,5 @@
 // API configuration and utilities
+import { API_BASE_URL } from '@/lib/constants';
 
 // Type definitions
 export interface Device {
@@ -50,6 +51,9 @@ export interface TemplateAnalysis {
     can_fill: boolean;
     confidence: number;
     sources: number;
+    context?: string;
+    pattern_type?: string;
+    questions_generated?: number;
   }>;
 }
 
@@ -63,8 +67,6 @@ export interface UploadResponse {
   filled_fields?: Record<string, string>;
   missing_fields?: string[];
 }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 export const apiEndpoints = {
   devices: {
@@ -251,8 +253,8 @@ export const chatApi = {
 };
 
 export const templateApi = {
-  analyze: (file: File, deviceId: string) =>
-    uploadFile<TemplateAnalysis>(apiEndpoints.templates.analyze(), file, { device_id: deviceId }),
-  uploadAndFill: (file: File, deviceId: string) =>
-    uploadFile<UploadResponse>(apiEndpoints.templates.uploadAndFill(), file, { device_id: deviceId }),
+  analyze: (file: File, deviceId: string, onProgress?: (progress: number) => void) =>
+    uploadFile<TemplateAnalysis>(apiEndpoints.templates.analyze(), file, { device_id: deviceId }, onProgress),
+  uploadAndFill: (file: File, deviceId: string, onProgress?: (progress: number) => void) =>
+    uploadFile<UploadResponse>(apiEndpoints.templates.uploadAndFill(), file, { device_id: deviceId }, onProgress),
 };
