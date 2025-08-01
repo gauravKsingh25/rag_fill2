@@ -1,0 +1,57 @@
+[
+  {
+    "id": "DA",
+    "name": "Device Alpha",
+    "description": "Primary device for alpha operations",
+    "namespace": "device_alpha",
+    "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
+    "max_documents": 100,
+    "embedding_model": "models/embedding-001",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_active": true
+  },
+  {
+    "id": "DB", 
+    "name": "Device Beta",
+    "description": "Secondary device for beta operations",
+    "namespace": "device_beta",
+    "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
+    "max_documents": 100,
+    "embedding_model": "models/embedding-001",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_active": true
+  },
+  {
+    "id": "DC",
+    "name": "Device Charlie", 
+    "description": "Tertiary device for charlie operations",
+    "namespace": "device_charlie",
+    "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
+    "max_documents": 100,
+    "embedding_model": "models/embedding-001",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_active": true
+  },
+  {
+    "id": "DD",
+    "name": "Device Delta",
+    "description": "Quaternary device for delta operations", 
+    "namespace": "device_delta",
+    "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
+    "max_documents": 100,
+    "embedding_model": "models/embedding-001",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_active": true
+  },
+  {
+    "id": "DE",
+    "name": "Device Echo",
+    "description": "Quinary device for echo operations",
+    "namespace": "device_echo", 
+    "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
+    "max_documents": 100,
+    "embedding_model": "models/embedding-001",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_active": true
+  }
+]

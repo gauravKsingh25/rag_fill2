@@ -1,0 +1,24 @@
+[
+  {
+    "document_id": "88606713-d845-43f5-824e-1379a51f800f",
+    "filename": "Piston nebulizer PLL-RMF-004.docx",
+    "file_size": 174027,
+    "file_type": ".docx",
+    "device_id": "DA",
+    "chunk_count": 16,
+    "processed": true,
+    "created_at": "2025-07-31 09:27:44.213204",
+    "_id": "doc_1_1753934264"
+  },
+  {
+    "document_id": "779ae09e-f70d-4fc9-9902-6e5c40dd9c4f",
+    "filename": "Pulse Oximeter  (R-03 current).docx",
+    "file_size": 1216128,
+    "file_type": ".docx",
+    "device_id": "DB",
+    "chunk_count": 27,
+    "processed": true,
+    "created_at": "2025-07-31 09:53:59.687643",
+    "_id": "doc_2_1753935839"
+  }
+]
