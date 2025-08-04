@@ -6,6 +6,10 @@ from datetime import datetime
 import json
 from pathlib import Path
 from bson import ObjectId
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

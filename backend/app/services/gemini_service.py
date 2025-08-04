@@ -6,14 +6,25 @@ import re
 import json
 import hashlib
 import numpy as np
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class GeminiService:
     def __init__(self):
         # SECURITY FIX: Use environment variable instead of hardcoded API key
-        self.api_key = "AIzaSyCEYOkQN5xmbpmZB8TFiXP07HUGZoEI7Zo"
+        self.api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self.available = False
+        
+        # Debug logging to check environment variable loading
+        if self.api_key:
+            logger.info(f"✅ Google API key loaded: {self.api_key[:8]}...{self.api_key[-4:] if len(self.api_key) > 8 else '***'}")
+        else:
+            logger.warning("❌ Google API key not found in environment variables")
+            logger.info("📝 Checking environment variables: GOOGLE_API_KEY and GEMINI_API_KEY")
         
         if self.api_key and self.api_key != "dummy_key_for_testing":
             try:

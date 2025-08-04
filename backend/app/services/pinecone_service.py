@@ -7,6 +7,10 @@ import json
 import pickle
 from pathlib import Path
 import numpy as np
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -228,16 +232,127 @@ class PineconeService:
     ) -> bool:
         """Delete vectors by IDs with device isolation"""
         try:
-            if not self.index:
-                await self.initialize_pinecone()
-            
-            self.index.delete(ids=vector_ids, namespace=f"device_{device_id}")
-            logger.info(f"✅ Deleted {len(vector_ids)} vectors for device {device_id}")
-            return True
+            if self.index:
+                # Use Pinecone if available
+                self.index.delete(ids=vector_ids, namespace=f"device_{device_id}")
+                logger.info(f"✅ Deleted {len(vector_ids)} vectors from Pinecone for device {device_id}")
+                return True
+            else:
+                # Fallback to local storage deletion
+                vectors = self._load_local_vectors(device_id)
+                
+                if not vectors:
+                    logger.info(f"📝 No vectors found in local storage for device {device_id}")
+                    return True  # Consider success if no vectors exist
+                
+                # Filter out vectors with matching IDs
+                initial_count = len(vectors)
+                filtered_vectors = [
+                    vector for vector in vectors 
+                    if vector.get('id') not in vector_ids
+                ]
+                
+                deleted_count = initial_count - len(filtered_vectors)
+                
+                if deleted_count > 0:
+                    # Save the filtered vectors back to local storage
+                    if self._save_local_vectors(device_id, filtered_vectors):
+                        logger.info(f"✅ Deleted {deleted_count} vectors from local storage for device {device_id}")
+                        return True
+                    else:
+                        logger.error(f"❌ Failed to save filtered vectors to local storage for device {device_id}")
+                        return False
+                else:
+                    logger.info(f"📝 No matching vectors found to delete for device {device_id}")
+                    return True  # Consider success if no matching vectors found
             
         except Exception as e:
             logger.error(f"❌ Failed to delete vectors: {e}")
             return False
+    
+    async def delete_document_vectors(self, document_id: str, device_id: str) -> bool:
+        """Delete all vectors for a specific document"""
+        try:
+            if self.index:
+                # Use Pinecone metadata filtering to delete all vectors for this document
+                self.index.delete(
+                    filter={"document_id": document_id},
+                    namespace=f"device_{device_id}"
+                )
+                logger.info(f"✅ Deleted all vectors for document {document_id} from Pinecone for device {device_id}")
+                return True
+            else:
+                # Fallback to local storage deletion
+                vectors = self._load_local_vectors(device_id)
+                
+                if not vectors:
+                    logger.info(f"📝 No vectors found in local storage for device {device_id}")
+                    return True
+                
+                # Filter out vectors with matching document_id
+                initial_count = len(vectors)
+                filtered_vectors = [
+                    vector for vector in vectors 
+                    if vector.get('metadata', {}).get('document_id') != document_id
+                ]
+                
+                deleted_count = initial_count - len(filtered_vectors)
+                
+                if deleted_count > 0:
+                    # Save the filtered vectors back to local storage
+                    if self._save_local_vectors(device_id, filtered_vectors):
+                        logger.info(f"✅ Deleted {deleted_count} vectors for document {document_id} from local storage for device {device_id}")
+                        return True
+                    else:
+                        logger.error(f"❌ Failed to save filtered vectors to local storage for device {device_id}")
+                        return False
+                else:
+                    logger.info(f"📝 No vectors found for document {document_id} in device {device_id}")
+                    return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete document vectors: {e}")
+            return False
+    
+    async def cleanup_orphaned_vectors(self, device_id: str, valid_document_ids: List[str]) -> int:
+        """Remove vectors that don't correspond to existing documents"""
+        try:
+            if self.index:
+                # For Pinecone, we'd need to query and filter, which is complex
+                # This feature would require fetching all vectors and checking metadata
+                logger.info("🔧 Orphaned vector cleanup for Pinecone not implemented (requires manual intervention)")
+                return 0
+            else:
+                # For local storage, we can easily clean up
+                vectors = self._load_local_vectors(device_id)
+                
+                if not vectors:
+                    return 0
+                
+                initial_count = len(vectors)
+                
+                # Keep only vectors that have document_ids in the valid list
+                valid_vectors = [
+                    vector for vector in vectors 
+                    if vector.get('metadata', {}).get('document_id') in valid_document_ids
+                ]
+                
+                orphaned_count = initial_count - len(valid_vectors)
+                
+                if orphaned_count > 0:
+                    if self._save_local_vectors(device_id, valid_vectors):
+                        logger.info(f"🧹 Cleaned up {orphaned_count} orphaned vectors for device {device_id}")
+                        return orphaned_count
+                    else:
+                        logger.error(f"❌ Failed to save cleaned vectors for device {device_id}")
+                        return 0
+                else:
+                    logger.info(f"✅ No orphaned vectors found for device {device_id}")
+                    return 0
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to cleanup orphaned vectors: {e}")
+            return 0
     
     async def get_index_stats(self, device_id: str) -> Dict[str, Any]:
         """Get index statistics for a specific device"""

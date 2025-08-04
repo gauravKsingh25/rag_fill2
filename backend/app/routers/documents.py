@@ -4,6 +4,7 @@ import logging
 
 from app.models import DocumentUploadResponse, DocumentMetadata
 from app.services.document_processor import document_processor
+from app.services.pinecone_service import pinecone_service
 from app.database import document_repo
 from app.routers.devices import get_device
 
@@ -146,3 +147,63 @@ async def reprocess_document(document_id: str):
     except Exception as e:
         logger.error(f"❌ Failed to reprocess document {document_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to reprocess document: {e}")
+
+@router.post("/device/{device_id}/cleanup")
+async def cleanup_device_vectors(device_id: str):
+    """Clean up orphaned vectors for a device"""
+    try:
+        # Verify device exists
+        await get_device(device_id)
+        
+        # Get all valid document IDs for this device
+        documents = await document_repo.get_documents_by_device(device_id)
+        valid_document_ids = [doc["document_id"] for doc in documents]
+        
+        # Clean up orphaned vectors
+        cleaned_count = await pinecone_service.cleanup_orphaned_vectors(device_id, valid_document_ids)
+        
+        return {
+            "message": f"Cleanup completed for device {device_id}",
+            "device_id": device_id,
+            "orphaned_vectors_removed": cleaned_count,
+            "valid_documents": len(valid_document_ids)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to cleanup vectors for device {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup vectors: {e}")
+
+@router.get("/device/{device_id}/vector-stats")
+async def get_device_vector_stats(device_id: str):
+    """Get vector database statistics for a device"""
+    try:
+        # Verify device exists
+        await get_device(device_id)
+        
+        # Get vector statistics
+        stats = await pinecone_service.get_index_stats(device_id)
+        
+        # Get document count from MongoDB
+        documents = await document_repo.get_documents_by_device(device_id)
+        
+        return {
+            "device_id": device_id,
+            "vector_stats": stats,
+            "mongodb_documents": len(documents),
+            "document_list": [
+                {
+                    "document_id": doc["document_id"],
+                    "filename": doc["filename"],
+                    "chunk_count": doc.get("chunk_count", 0)
+                }
+                for doc in documents
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to get vector stats for device {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get vector stats: {e}")

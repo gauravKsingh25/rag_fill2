@@ -86,7 +86,9 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
       }
 
       const result = await response.json();
-      setSuccess(`Document "${result.filename}" uploaded and processed successfully! Created ${result.message.match(/\\d+/)?.[0] || 0} chunks.`);
+      // Extract chunks created from the message or use 0 as fallback
+      const chunksCreated = result.message.match(/Created (\d+) chunks/)?.[1] || '0';
+      setSuccess(`Document "${result.filename}" uploaded and processed successfully! Created ${chunksCreated} chunks.`);
       
       // Refresh document list
       await fetchDocuments();
