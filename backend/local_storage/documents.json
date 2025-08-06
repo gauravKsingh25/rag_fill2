@@ -1,24 +1,123 @@
 [
   {
-    "document_id": "88606713-d845-43f5-824e-1379a51f800f",
-    "filename": "Piston nebulizer PLL-RMF-004.docx",
-    "file_size": 174027,
-    "file_type": ".docx",
-    "device_id": "DA",
-    "chunk_count": 16,
+    "document_id": "345d504e-4e41-44cb-a2dd-241d8e8793d2",
+    "filename": "test_comprehensive_document.txt",
+    "file_size": 1043,
+    "file_type": ".txt",
+    "device_id": "test_enhanced_device",
+    "chunk_count": 107,
     "processed": true,
-    "created_at": "2025-07-31 09:27:44.213204",
-    "_id": "doc_1_1753934264"
+    "created_at": "2025-08-05 06:51:47.051264",
+    "_id": "doc_1_1754356907"
   },
   {
-    "document_id": "779ae09e-f70d-4fc9-9902-6e5c40dd9c4f",
-    "filename": "Pulse Oximeter  (R-03 current).docx",
-    "file_size": 1216128,
-    "file_type": ".docx",
-    "device_id": "DB",
-    "chunk_count": 27,
+    "document_id": "e7167dca-0955-4f56-bacb-f3ccf5460859",
+    "filename": "device_basic_info.txt",
+    "file_size": 929,
+    "file_type": ".txt",
+    "device_id": "test_comprehensive_coverage",
+    "chunk_count": 14,
     "processed": true,
-    "created_at": "2025-07-31 09:53:59.687643",
-    "_id": "doc_2_1753935839"
+    "created_at": "2025-08-05 07:01:56.041787",
+    "_id": "doc_2_1754357516"
+  },
+  {
+    "document_id": "0b669073-3c1e-4125-9213-87677f2732ff",
+    "filename": "technical_specifications.txt",
+    "file_size": 1134,
+    "file_type": ".txt",
+    "device_id": "test_comprehensive_coverage",
+    "chunk_count": 12,
+    "processed": true,
+    "created_at": "2025-08-05 07:02:06.655070",
+    "_id": "doc_3_1754357526"
+  },
+  {
+    "document_id": "ac8c9e2a-68da-4907-91ab-020272ba1e31",
+    "filename": "safety_compliance.txt",
+    "file_size": 1461,
+    "file_type": ".txt",
+    "device_id": "test_comprehensive_coverage",
+    "chunk_count": 90,
+    "processed": true,
+    "created_at": "2025-08-05 07:03:18.806723",
+    "_id": "doc_4_1754357598"
+  },
+  {
+    "document_id": "7eb737d9-1994-43ea-9e07-561176f85051",
+    "filename": "manufacturing_quality.txt",
+    "file_size": 1349,
+    "file_type": ".txt",
+    "device_id": "test_comprehensive_coverage",
+    "chunk_count": 54,
+    "processed": true,
+    "created_at": "2025-08-05 07:03:45.245770",
+    "_id": "doc_5_1754357625"
+  },
+  {
+    "document_id": "c0da54e6-94e2-47be-b724-e78a979946be",
+    "filename": "device_overview.txt",
+    "file_size": 610,
+    "file_type": ".txt",
+    "device_id": "collective_test_device_001",
+    "chunk_count": 23,
+    "processed": true,
+    "created_at": "2025-08-05 07:21:29.872471",
+    "_id": "doc_6_1754358689"
+  },
+  {
+    "document_id": "f75c4d31-6de2-46b5-ac66-c70973182694",
+    "filename": "technical_specifications.txt",
+    "file_size": 806,
+    "file_type": ".txt",
+    "device_id": "collective_test_device_001",
+    "chunk_count": 37,
+    "processed": true,
+    "created_at": "2025-08-05 07:22:30.752765",
+    "_id": "doc_7_1754358750"
+  },
+  {
+    "document_id": "b8b936d3-0814-42f9-9505-c9f1eab6eb6f",
+    "filename": "regulatory_compliance.txt",
+    "file_size": 764,
+    "file_type": ".txt",
+    "device_id": "collective_test_device_001",
+    "chunk_count": 15,
+    "processed": true,
+    "created_at": "2025-08-05 07:22:48.271671",
+    "_id": "doc_8_1754358768"
+  },
+  {
+    "document_id": "4e659ce8-a665-4e3d-a505-bc13b433514d",
+    "filename": "manufacturing_info.txt",
+    "file_size": 867,
+    "file_type": ".txt",
+    "device_id": "collective_test_device_001",
+    "chunk_count": 37,
+    "processed": true,
+    "created_at": "2025-08-05 07:23:26.178640",
+    "_id": "doc_9_1754358806"
+  },
+  {
+    "document_id": "0e862486-eac5-4a85-9196-9cfdad9e3667",
+    "filename": "device_overview.txt",
+    "file_size": 610,
+    "file_type": ".txt",
+    "device_id": "collective_test_device_001",
+    "chunk_count": 23,
+    "processed": true,
+    "created_at": "2025-08-05 08:10:48.291950",
+    "_id": "doc_10_1754361648"
+  },
+  {
+    "document_id": "a2a12eb8-d4a5-494d-88cd-44c0f77e56eb",
+    "filename": "test_device_master_file.txt",
+    "file_size": 1040,
+    "file_type": ".txt",
+    "device_id": "test_device_123",
+    "chunk_count": 73,
+    "processed": true,
+    "created_at": "2025-08-05 08:40:34.316848",
+    "_id": "doc_11_1754363434"
   }
 ]

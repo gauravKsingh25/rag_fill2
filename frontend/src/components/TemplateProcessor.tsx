@@ -195,8 +195,8 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
                   <div className="text-sm text-gray-600">
                     {details.can_fill ? (
                       <span>
-                        Confidence: {(details.confidence * 100).toFixed(1)}% 
-                        ({details.sources} sources)
+                        Confidence: {typeof details.confidence === 'number' && !isNaN(details.confidence) ? (details.confidence * 100).toFixed(1) : 'N/A'}% 
+                        ({details.sources || 0} sources)
                       </span>
                     ) : (
                       <span>No matching content found</span>

@@ -3,11 +3,11 @@ from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 import uuid
 import logging
+import re
 from pathlib import Path
 import tempfile
 import os
 from docx import Document
-import re
 
 from app.models import TemplateRequest, TemplateResponse
 from app.services.gemini_service import gemini_service
@@ -76,8 +76,18 @@ async def process_template(
         for paragraph in doc.paragraphs:
             full_text += paragraph.text + "\n"
         
-        # Extract missing fields using enhanced pattern matching
-        missing_field_info = await extract_missing_fields_enhanced(full_text)
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        full_text += paragraph.text + "\n"
+        
+        # Filter out table of contents, headers, footers before processing
+        filtered_text = gemini_service._filter_template_content(full_text)
+        
+        # Extract missing fields using enhanced pattern matching on filtered content
+        missing_field_info = await extract_missing_fields_enhanced(filtered_text)
         
         filled_fields = {}
         missing_fields = []
@@ -94,50 +104,82 @@ async def process_template(
             logger.info(f"🔍 Processing field: {field_name}")
             print(f"🔍 Field context: {field_context[:200]}...")  # Print first 200 chars of context
 
-            # Generate multiple targeted questions for this field
+            # ENHANCED: Generate comprehensive targeted questions for this field
             questions = await gemini_service.generate_field_questions(field_name, field_context)
             print(f"🔍 Generated questions: {questions}")
             
-            # Search vector database with multiple queries
-            all_search_results = []
+            # ENHANCED: Comprehensive multi-query search approach
+            all_query_vectors = []
+            
+            # Generate embeddings for all questions
             for question in questions:
                 query_embedding = await gemini_service.get_embedding(question)
-                search_results = await pinecone_service.search_vectors(
-                    query_vector=query_embedding,
-                    device_id=device_id,
-                    top_k=5
-                )
-                all_search_results.extend(search_results)
+                all_query_vectors.append(query_embedding)
             
-            if all_search_results:
-                # Remove duplicates and get unique content
-                unique_results = {}
-                for result in all_search_results:
-                    if result.content not in unique_results:
-                        unique_results[result.content] = result.score
+            # Also add direct field name and context embeddings
+            field_embedding = await gemini_service.get_embedding(field_name)
+            all_query_vectors.append(field_embedding)
+            
+            # Add context-aware embedding
+            context_query = f"{field_name} information from {field_context[:100]}"
+            context_embedding = await gemini_service.get_embedding(context_query)
+            all_query_vectors.append(context_embedding)
+            
+            # ENHANCED: Use comprehensive search for maximum document coverage
+            comprehensive_results = await pinecone_service.comprehensive_search(
+                query_vectors=all_query_vectors,
+                device_id=device_id,
+                top_k_per_query=10,  # More results per query
+                final_top_k=20       # More final results for comprehensive analysis
+            )
+            
+            if comprehensive_results:
+                # Extract high-quality context documents
+                context_docs = []
+                high_importance_docs = []
                 
-                # Sort by relevance score
-                sorted_results = sorted(unique_results.items(), key=lambda x: x[1], reverse=True)
-                context_docs = [content for content, score in sorted_results[:5]]  # Top 5 results
+                for result in comprehensive_results:
+                    content = result.content
+                    metadata = result.metadata
+                    
+                    if len(content) > 50:  # Ensure meaningful content
+                        context_docs.append(content)
+                        
+                        # Separate high-importance content
+                        importance_score = metadata.get('importance_score', 0.5)
+                        if importance_score > 0.7 or metadata.get('has_form_fields', False):
+                            high_importance_docs.append(content)
                 
-                # Use enhanced field filling with context analysis
-                field_value = await gemini_service.fill_template_field_enhanced(
-                    field_name=field_name,
-                    field_context=field_context,
-                    context_docs=context_docs,
-                    questions=questions,
-                    device_id=device_id
-                )
+                # Prioritize high-importance documents but include comprehensive context
+                final_context_docs = high_importance_docs[:10] + context_docs[:15]
+                final_context_docs = list(dict.fromkeys(final_context_docs))  # Remove duplicates while preserving order
                 
-                if field_value and field_value.strip():
-                    filled_fields[field_name] = field_value.strip()
-                    logger.info(f"✅ Filled field '{field_name}': {field_value.strip()[:50]}...")
+                if len(final_context_docs) >= 5:  # Ensure sufficient context
+                    # Use enhanced field filling with comprehensive context analysis
+                    field_value = await gemini_service.fill_template_field_enhanced(
+                        field_name=field_name,
+                        field_context=field_context,
+                        context_docs=final_context_docs,
+                        questions=questions,
+                        device_id=device_id
+                    )
+                    
+                    if field_value and field_value.strip():
+                        filled_fields[field_name] = field_value.strip()
+                        logger.info(f"✅ Filled field '{field_name}': {field_value.strip()[:50]}...")
+                        print(f"✅ Filled '{field_name}' with: {field_value.strip()}")
+                    else:
+                        missing_fields.append(field_name)
+                        logger.warning(f"❌ Could not fill field: {field_name} (AI could not extract value)")
+                        print(f"❌ Could not extract value for: {field_name}")
                 else:
                     missing_fields.append(field_name)
-                    logger.warning(f"❌ Could not fill field: {field_name}")
+                    logger.warning(f"❌ Could not fill field: {field_name} (insufficient context documents: {len(final_context_docs)})")
+                    print(f"❌ Insufficient context for: {field_name} (only {len(final_context_docs)} docs)")
             else:
                 missing_fields.append(field_name)
                 logger.warning(f"❌ No search results for field: {field_name}")
+                print(f"❌ No search results for: {field_name}")
         
         # Replace placeholders in document with enhanced pattern matching
         replacement_count = 0
@@ -247,7 +289,7 @@ async def process_template(
         raise
 
 async def extract_missing_fields_enhanced(template_content: str) -> List[Dict[str, str]]:
-    """Extract missing fields with comprehensive pattern matching and context analysis"""
+    """Extract missing fields with comprehensive pattern matching and context analysis, focusing on main content"""
     try:
         missing_fields = []
         
@@ -278,7 +320,7 @@ async def extract_missing_fields_enhanced(template_content: str) -> List[Dict[st
             (r'\.{4,}', 'LONG_DOTS'),          # Four or more dots
             (r'\.{3}', 'THREE_DOTS'),          # Exactly three dots
             
-            # Form field patterns with colons
+            # Form field patterns with colons - FOCUS ON THESE
             (r'[A-Za-z][A-Za-z\s]*:\s*$', 'COLON_FIELD_END'),           # "Field Name: " at end of line
             (r'[A-Za-z][A-Za-z\s]*:\s*(?=\s|$)', 'COLON_FIELD_INLINE'), # "Field Name: " followed by space
             
@@ -307,7 +349,11 @@ async def extract_missing_fields_enhanced(template_content: str) -> List[Dict[st
         for line_num, line in enumerate(lines):
             original_line = line
             
-            # First, handle colon-based fields specially
+            # Skip lines that look like TOC entries or headers/footers
+            if is_toc_or_header_line(line):
+                continue
+            
+            # First, handle colon-based fields specially (MAIN FOCUS)
             colon_fields = extract_colon_fields(line, line_num, lines)
             missing_fields.extend(colon_fields)
             
@@ -332,7 +378,7 @@ async def extract_missing_fields_enhanced(template_content: str) -> List[Dict[st
                     # Get surrounding context (more context for better understanding)
                     context_lines = []
                     for i in range(max(0, line_num - 3), min(len(lines), line_num + 4)):
-                        if i < len(lines):
+                        if i < len(lines) and not is_toc_or_header_line(lines[i]):
                             context_lines.append(lines[i].strip())
                     context = ' '.join(context_lines)
                     
@@ -366,11 +412,53 @@ async def extract_missing_fields_enhanced(template_content: str) -> List[Dict[st
         logger.error(f"❌ Failed to extract missing fields: {e}")
         return []
 
+def is_toc_or_header_line(line: str) -> bool:
+    """Check if a line is part of TOC, header, or footer and should be skipped"""
+    line_lower = line.lower().strip()
+    
+    # Empty lines are ok
+    if not line_lower:
+        return False
+    
+    # Check for TOC patterns
+    toc_patterns = [
+        r'table\s+of\s+contents',
+        r'contents',
+        r'^\d+\.\s*.+\.\.\.\.\s*\d+$',  # TOC entry with dots
+        r'^\d+\.\d+\s*.+\s+\d+\s*$',   # TOC sub-entry  
+        r'^[A-Z\s]+\s+\d+\s*$',        # All caps with page number
+        r'page\s+\d+',
+        r'^\s*\d+\s*$',                 # Page number alone
+        r'\.{3,}',                      # Dot leaders
+    ]
+    
+    # Check for header/footer patterns
+    header_footer_patterns = [
+        r'header',
+        r'footer', 
+        r'confidential',
+        r'proprietary',
+        r'copyright',
+        r'©\s*\d{4}',
+        r'revision\s+\d+',
+        r'version\s+\d+',
+    ]
+    
+    for pattern in toc_patterns + header_footer_patterns:
+        if re.search(pattern, line_lower):
+            return True
+    
+    return False
+
 def extract_colon_fields(line: str, line_num: int, all_lines: List[str]) -> List[Dict[str, str]]:
-    """Extract fields that end with colons (form fields)"""
+    """Extract fields that end with colons (form fields) - MAIN FOCUS for template filling"""
     colon_fields = []
     
     try:
+        # Skip this line if it's part of TOC or headers
+        if is_toc_or_header_line(line):
+            return colon_fields
+        
         # Pattern for fields ending with colon
         colon_pattern = r'([A-Za-z][A-Za-z\s\(\)/&-]*?):\s*$'
         matches = re.finditer(colon_pattern, line.strip())
@@ -382,14 +470,18 @@ def extract_colon_fields(line: str, line_num: int, all_lines: List[str]) -> List
             field_text = re.sub(r'^\d+[\.\)]\s*', '', field_text)  # Remove numbering
             field_text = re.sub(r'^[a-z]\)\s*', '', field_text)    # Remove a), b), c) numbering
             
-            # Skip very short or common words
-            if len(field_text) < 3 or field_text.lower() in ['the', 'and', 'for', 'with', 'from']:
+            # Skip very short or common words that are likely not real fields
+            if len(field_text) < 3 or field_text.lower() in ['the', 'and', 'for', 'with', 'from', 'page', 'section']:
                 continue
             
-            # Get context from surrounding lines
+            # Skip TOC-like entries even if they have colons
+            if re.search(r'\d+\s*$', field_text) or re.search(r'page|section|chapter', field_text.lower()):
+                continue
+            
+            # Get context from surrounding lines (excluding TOC/header lines)
             context_lines = []
             for i in range(max(0, line_num - 2), min(len(all_lines), line_num + 3)):
-                if i < len(all_lines):
+                if i < len(all_lines) and not is_toc_or_header_line(all_lines[i]):
                     context_lines.append(all_lines[i].strip())
             context = ' '.join(context_lines)
             
@@ -665,8 +757,18 @@ async def analyze_template(
             for paragraph in doc.paragraphs:
                 full_text += paragraph.text + "\n"
             
-            # Extract placeholder fields
-            placeholder_fields = await gemini_service.extract_template_fields(full_text)
+            # Also extract text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for paragraph in cell.paragraphs:
+                            full_text += paragraph.text + "\n"
+            
+            # Filter out unwanted content before field extraction
+            filtered_text = gemini_service._filter_template_content(full_text)
+            
+            # Extract placeholder fields from filtered content
+            placeholder_fields = await gemini_service.extract_template_fields(filtered_text)
             
             # For each field, check if we have relevant information
             field_analysis = {}

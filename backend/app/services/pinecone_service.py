@@ -152,10 +152,14 @@ class PineconeService:
         query_vector: List[float], 
         device_id: str,
         top_k: int = 5,
-        filter_metadata: Optional[Dict[str, Any]] = None
+        filter_metadata: Optional[Dict[str, Any]] = None,
+        include_low_quality: bool = False
     ) -> List[VectorSearchResult]:
-        """Search vectors with device isolation or local storage fallback"""
+        """Enhanced vector search with quality filtering and comprehensive retrieval"""
         try:
+            # ENHANCED: Increase top_k for better coverage, then filter by quality
+            enhanced_top_k = min(top_k * 3, 50)  # Get more results initially
+            
             if self.index:
                 # Use Pinecone if available
                 # Ensure device isolation in filter
@@ -163,9 +167,14 @@ class PineconeService:
                 if filter_metadata:
                     device_filter.update(filter_metadata)
                 
+                # ENHANCED: Add quality filtering unless explicitly disabled
+                if not include_low_quality:
+                    if "chunk_quality_score" not in device_filter:
+                        device_filter["chunk_quality_score"] = {"$gte": 0.3}  # Minimum quality threshold
+                
                 results = self.index.query(
                     vector=query_vector,
-                    top_k=top_k,
+                    top_k=enhanced_top_k,
                     include_metadata=True,
                     namespace=f"device_{device_id}",
                     filter=device_filter
@@ -179,9 +188,12 @@ class PineconeService:
                         score=match.score
                     ))
                 
-                return search_results
+                # ENHANCED: Post-process results for better quality and diversity
+                enhanced_results = self._enhance_search_results(search_results, top_k)
+                return enhanced_results
+                
             else:
-                # Fallback to local storage with simple similarity search
+                # Fallback to local storage with enhanced similarity search
                 vectors = self._load_local_vectors(device_id)
                 
                 if not vectors:
@@ -192,17 +204,23 @@ class PineconeService:
                 for i, vector in enumerate(vectors):
                     if 'values' in vector:
                         similarity = self._cosine_similarity(query_vector, vector['values'])
-                        similarities.append((i, similarity, vector))
+                        
+                        # ENHANCED: Apply quality filtering
+                        metadata = vector.get('metadata', {})
+                        quality_score = metadata.get('chunk_quality_score', 0.5)
+                        
+                        if include_low_quality or quality_score >= 0.3:
+                            similarities.append((i, similarity, vector))
                 
-                # Sort by similarity and take top_k
+                # Sort by similarity and take enhanced top_k
                 similarities.sort(key=lambda x: x[1], reverse=True)
-                top_results = similarities[:top_k]
+                top_results = similarities[:enhanced_top_k]
                 
                 search_results = []
                 for _, score, vector in top_results:
                     metadata = vector.get('metadata', {})
                     
-                    # Apply filter if provided
+                    # Apply additional filter if provided
                     if filter_metadata:
                         skip = False
                         for key, value in filter_metadata.items():
@@ -218,11 +236,128 @@ class PineconeService:
                         score=score
                     ))
                 
-                logger.info(f"✅ Found {len(search_results)} results from local storage for device {device_id}")
-                return search_results
+                # ENHANCED: Post-process results
+                enhanced_results = self._enhance_search_results(search_results, top_k)
+                
+                logger.info(f"✅ Found {len(enhanced_results)} quality results from local storage for device {device_id}")
+                return enhanced_results
             
         except Exception as e:
             logger.error(f"❌ Failed to search vectors: {e}")
+            return []
+    
+    def _enhance_search_results(self, search_results: List[VectorSearchResult], target_count: int) -> List[VectorSearchResult]:
+        """Enhance search results with quality filtering and diversity"""
+        try:
+            if not search_results:
+                return search_results
+            
+            # Sort by composite score (similarity + quality)
+            enhanced_results = []
+            for result in search_results:
+                metadata = result.metadata
+                
+                # Calculate composite score
+                similarity_score = result.score
+                quality_score = metadata.get('chunk_quality_score', 0.5)
+                importance_score = metadata.get('importance_score', 0.5)
+                
+                # Weighted composite score
+                composite_score = (
+                    similarity_score * 0.6 +           # 60% similarity
+                    quality_score * 0.25 +             # 25% quality
+                    importance_score * 0.15             # 15% importance
+                )
+                
+                enhanced_results.append({
+                    'result': result,
+                    'composite_score': composite_score,
+                    'has_form_fields': metadata.get('has_form_fields', False),
+                    'content_type': metadata.get('content_type', 'text')
+                })
+            
+            # Sort by composite score
+            enhanced_results.sort(key=lambda x: x['composite_score'], reverse=True)
+            
+            # Apply diversity filtering to avoid too much similar content
+            diverse_results = []
+            seen_content_hashes = set()
+            
+            for item in enhanced_results:
+                result = item['result']
+                content = result.content
+                
+                # Create a simple hash for content similarity
+                content_hash = hash(content[:100].lower().strip())
+                
+                # Add if we haven't seen similar content OR if it's high importance
+                if (content_hash not in seen_content_hashes or 
+                    item['composite_score'] > 0.8 or 
+                    item['has_form_fields']):
+                    
+                    diverse_results.append(result)
+                    seen_content_hashes.add(content_hash)
+                    
+                    if len(diverse_results) >= target_count:
+                        break
+            
+            # If we don't have enough diverse results, fill with the next best
+            if len(diverse_results) < target_count:
+                for item in enhanced_results:
+                    if item['result'] not in diverse_results:
+                        diverse_results.append(item['result'])
+                        if len(diverse_results) >= target_count:
+                            break
+            
+            logger.info(f"📊 Enhanced search: {len(search_results)} → {len(diverse_results)} diverse, high-quality results")
+            return diverse_results[:target_count]
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to enhance search results: {e}")
+            return search_results[:target_count]
+    
+    async def comprehensive_search(
+        self, 
+        query_vectors: List[List[float]], 
+        device_id: str,
+        top_k_per_query: int = 8,
+        final_top_k: int = 15
+    ) -> List[VectorSearchResult]:
+        """Comprehensive search using multiple query vectors for maximum coverage"""
+        try:
+            all_results = []
+            
+            # Search with each query vector
+            for i, query_vector in enumerate(query_vectors):
+                results = await self.search_vectors(
+                    query_vector=query_vector,
+                    device_id=device_id,
+                    top_k=top_k_per_query,
+                    include_low_quality=False
+                )
+                
+                # Tag results with query info
+                for result in results:
+                    result.metadata['query_index'] = i
+                    all_results.append(result)
+            
+            # Deduplicate and enhance
+            unique_results = {}
+            for result in all_results:
+                content_key = result.content[:100]  # Use first 100 chars as key
+                
+                if content_key not in unique_results or result.score > unique_results[content_key].score:
+                    unique_results[content_key] = result
+            
+            # Convert back to list and enhance
+            final_results = list(unique_results.values())
+            enhanced_final = self._enhance_search_results(final_results, final_top_k)
+            
+            logger.info(f"📊 Comprehensive search: {len(query_vectors)} queries → {len(all_results)} results → {len(enhanced_final)} final")
+            return enhanced_final
+            
+        except Exception as e:
+            logger.error(f"❌ Failed in comprehensive search: {e}")
             return []
     
     async def delete_vectors(

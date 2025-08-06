@@ -44,6 +44,19 @@ class ChatResponse(BaseModel):
     sources: List[Dict[str, Any]] = Field(default=[], description="Source documents used for response")
     device_id: str = Field(..., description="Device ID used for response")
 
+class FactVerificationRequest(BaseModel):
+    device_id: str = Field(..., description="Device ID for context isolation")
+    claim: str = Field(..., description="Fact or claim to verify")
+
+class FactVerificationResponse(BaseModel):
+    device_id: str = Field(..., description="Device ID used")
+    claim: str = Field(..., description="Original claim")
+    verification_status: str = Field(..., description="SUPPORTED/CONTRADICTED/PARTIALLY_SUPPORTED/NO_EVIDENCE_FOUND")
+    verification_result: str = Field(..., description="Detailed verification analysis")
+    evidence_count: int = Field(..., description="Number of evidence pieces found")
+    avg_confidence: float = Field(..., description="Average confidence score of evidence")
+    evidence: List[Dict[str, Any]] = Field(default=[], description="Supporting evidence documents")
+
 class TemplateRequest(BaseModel):
     device_id: str = Field(..., description="Device ID for context")
     template_filename: str = Field(..., description="Name of the template file")
