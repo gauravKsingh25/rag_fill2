@@ -24,6 +24,7 @@ try:
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
+    logger.warning("PyMuPDF not available - using alternative PDF processors")
 
 try:
     from pdfminer.high_level import extract_text as pdfminer_extract_text

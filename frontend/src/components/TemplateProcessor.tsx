@@ -31,9 +31,14 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
   const [startTime, setStartTime] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
+  const activeIntervalsRef = useRef<NodeJS.Timeout[]>([]);
 
   // Progress simulation during template processing
   useEffect(() => {
+    // Clear any existing intervals
+    activeIntervalsRef.current.forEach(interval => clearInterval(interval));
+    activeIntervalsRef.current = [];
+
     if (!processing) {
       setProgress(0);
       setProgressStage('');
@@ -52,20 +57,18 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
     ];
 
     let currentStageIndex = 0;
-    let progressInterval: NodeJS.Timeout;
 
     const updateProgress = () => {
       if (currentStageIndex >= stages.length) return;
 
       const currentStage = stages[currentStageIndex];
-      const nextStage = stages[currentStageIndex + 1];
       const stageStartProgress = currentStageIndex === 0 ? 0 : stages[currentStageIndex - 1].progress;
       const stageEndProgress = currentStage.progress;
       const stageDuration = currentStage.duration;
 
       setProgressStage(currentStage.stage);
 
-      let stageStartTime = Date.now();
+      const stageStartTime = Date.now();
       const stageInterval = setInterval(() => {
         const elapsed = Date.now() - stageStartTime;
         const stageProgress = Math.min(elapsed / stageDuration, 1);
@@ -83,6 +86,9 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
 
         if (stageProgress >= 1) {
           clearInterval(stageInterval);
+          // Remove this interval from active intervals
+          activeIntervalsRef.current = activeIntervalsRef.current.filter(id => id !== stageInterval);
+          
           currentStageIndex++;
           if (currentStageIndex < stages.length) {
             setTimeout(updateProgress, 100);
@@ -90,7 +96,8 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
         }
       }, 100);
 
-      return () => clearInterval(stageInterval);
+      // Track the active interval
+      activeIntervalsRef.current.push(stageInterval);
     };
 
     if (startTime === null) {
@@ -99,8 +106,10 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
 
     updateProgress();
 
+    // Cleanup function
     return () => {
-      if (progressInterval) clearInterval(progressInterval);
+      activeIntervalsRef.current.forEach(interval => clearInterval(interval));
+      activeIntervalsRef.current = [];
     };
   }, [processing, startTime]);
 
