@@ -132,7 +132,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       formData.append('file', file);
       formData.append('device_id', deviceId);
 
-      const response = await fetch('http://localhost:8000/api/templates/analyze', {
+      const response = await fetch('https://rag-fill2-1.onrender.com/api/templates/analyze', {
         method: 'POST',
         body: formData,
       });
@@ -180,7 +180,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       setProgressStage('Uploading template...');
 
       // Start the fetch request
-      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', {
+      const response = await fetch('https://rag-fill2-1.onrender.com/api/templates/upload-and-fill', {
         method: 'POST',
         body: formData,
       });
@@ -203,7 +203,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       setProgress(100);
       setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
-      setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
+      setDownloadUrl(`https://rag-fill2-1.onrender.com${result.filled_template_url}`);
       
       // Clear file input
       if (processInputRef.current) {

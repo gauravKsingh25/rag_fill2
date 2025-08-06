@@ -25,7 +25,7 @@ export default function DeviceSelector({ selectedDevice, onDeviceSelect }: Devic
 
   const fetchDevices = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/devices/');
+      const response = await fetch('https://rag-fill2-1.onrender.com/api/devices/');
       if (!response.ok) {
         throw new Error('Failed to fetch devices');
       }

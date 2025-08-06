@@ -60,8 +60,8 @@ echo    Backend:  cd backend ^& python main.py
 echo.
 echo 🌐 URLs:
 echo    Frontend: http://localhost:3000
-echo    Backend:  http://localhost:8000
-echo    API Docs: http://localhost:8000/docs
+echo    Backend:  https://rag-fill2-1.onrender.com
+echo    API Docs: https://rag-fill2-1.onrender.com/docs
 echo.
 
 pause

@@ -152,7 +152,7 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-      const response = await fetch('http://localhost:8000/api/chat/', {
+      const response = await fetch('https://rag-fill2-1.onrender.com/api/chat/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -29,7 +29,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/documents/device/${deviceId}`);
+      const response = await fetch(`https://rag-fill2-1.onrender.com/api/documents/device/${deviceId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch documents');
       }
@@ -75,7 +75,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
       formData.append('file', file);
       formData.append('device_id', deviceId);
 
-      const response = await fetch('http://localhost:8000/api/documents/upload', {
+      const response = await fetch('https://rag-fill2-1.onrender.com/api/documents/upload', {
         method: 'POST',
         body: formData,
       });
@@ -111,7 +111,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     }
 
     try {
-      const response = await fetch(`http://localhost:8000/api/documents/${documentId}`, {
+      const response = await fetch(`https://rag-fill2-1.onrender.com/api/documents/${documentId}`, {
         method: 'DELETE',
       });
 

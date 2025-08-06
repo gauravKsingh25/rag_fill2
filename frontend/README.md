@@ -87,7 +87,7 @@ FRONTEND_URL=http://localhost:3000
 python main.py
 ```
 
-The backend API will be available at `http://localhost:8000`
+The backend API will be available at `https://rag-fill2-1.onrender.com`
 
 ### Frontend Setup
 

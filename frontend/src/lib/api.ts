@@ -64,7 +64,7 @@ export interface UploadResponse {
   missing_fields?: string[];
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = 'https://rag-fill2-1.onrender.com';
 
 export const apiEndpoints = {
   devices: {
