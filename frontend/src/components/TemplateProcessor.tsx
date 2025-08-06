@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface TemplateAnalysis {
   device_id: string;
@@ -25,8 +25,84 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [progressStage, setProgressStage] = useState('');
+  const [estimatedTime, setEstimatedTime] = useState(0);
+  const [startTime, setStartTime] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
+
+  // Progress simulation during template processing
+  useEffect(() => {
+    if (!processing) {
+      setProgress(0);
+      setProgressStage('');
+      setEstimatedTime(0);
+      setStartTime(null);
+      return;
+    }
+
+    const stages = [
+      { progress: 15, stage: 'Analyzing template structure...', duration: 3000 },
+      { progress: 30, stage: 'Extracting placeholders...', duration: 4000 },
+      { progress: 50, stage: 'Searching knowledge base...', duration: 8000 },
+      { progress: 70, stage: 'Generating field content...', duration: 15000 },
+      { progress: 85, stage: 'Filling template fields...', duration: 8000 },
+      { progress: 92, stage: 'Finalizing document...', duration: 3000 },
+    ];
+
+    let currentStageIndex = 0;
+    let progressInterval: NodeJS.Timeout;
+
+    const updateProgress = () => {
+      if (currentStageIndex >= stages.length) return;
+
+      const currentStage = stages[currentStageIndex];
+      const nextStage = stages[currentStageIndex + 1];
+      const stageStartProgress = currentStageIndex === 0 ? 0 : stages[currentStageIndex - 1].progress;
+      const stageEndProgress = currentStage.progress;
+      const stageDuration = currentStage.duration;
+
+      setProgressStage(currentStage.stage);
+
+      let stageStartTime = Date.now();
+      const stageInterval = setInterval(() => {
+        const elapsed = Date.now() - stageStartTime;
+        const stageProgress = Math.min(elapsed / stageDuration, 1);
+        const currentProgress = stageStartProgress + (stageEndProgress - stageStartProgress) * stageProgress;
+        
+        setProgress(Math.min(currentProgress, 100));
+
+        // Calculate estimated time remaining
+        if (startTime) {
+          const totalElapsed = Date.now() - startTime;
+          const totalEstimated = totalElapsed / (currentProgress / 100);
+          const remaining = Math.max(0, totalEstimated - totalElapsed);
+          setEstimatedTime(Math.ceil(remaining / 1000));
+        }
+
+        if (stageProgress >= 1) {
+          clearInterval(stageInterval);
+          currentStageIndex++;
+          if (currentStageIndex < stages.length) {
+            setTimeout(updateProgress, 100);
+          }
+        }
+      }, 100);
+
+      return () => clearInterval(stageInterval);
+    };
+
+    if (startTime === null) {
+      setStartTime(Date.now());
+    }
+
+    updateProgress();
+
+    return () => {
+      if (progressInterval) clearInterval(progressInterval);
+    };
+  }, [processing, startTime]);
 
   const handleAnalyzeTemplate = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -81,23 +157,42 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
     setError(null);
     setSuccess(null);
     setDownloadUrl(null);
+    setProgress(0);
+    setProgressStage('Starting template processing...');
+    setStartTime(Date.now());
 
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
 
+      // Manual progress updates for real API interaction
+      setProgress(5);
+      setProgressStage('Uploading template...');
+
+      // Start the fetch request
       const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', {
         method: 'POST',
         body: formData,
       });
+
+      setProgress(15);
+      setProgressStage('Template uploaded, analyzing...');
 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Processing failed');
       }
 
+      // Let the simulated progress continue running while we wait for response
+      // The useEffect will handle the detailed progress stages from 15% to 92%
+      // We just set the final real stages here
+
       const result = await response.json();
+      
+      // Override the simulation at the end with real completion
+      setProgress(100);
+      setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
       setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
       
@@ -108,6 +203,8 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed');
+      setProgress(0);
+      setProgressStage('');
     } finally {
       setProcessing(false);
     }
@@ -211,55 +308,129 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
 
       {/* Template Processing Section */}
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Process Template
-        </h3>
-        <p className="text-sm text-gray-600 mb-4">
-          Upload a template to automatically fill it with information from Device {deviceId}&apos;s documents.
-        </p>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Template to Process
-            </label>
-            <input
-              ref={processInputRef}
-              type="file"
-              accept=".docx"
-              onChange={handleProcessTemplate}
-              disabled={processing}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              The template will be processed and placeholders filled automatically
+        <div className="flex gap-6">
+          {/* Main Processing Content */}
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Process Template
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Upload a template to automatically fill it with information from Device {deviceId}&apos;s documents.
             </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Template to Process
+                </label>
+                <input
+                  ref={processInputRef}
+                  type="file"
+                  accept=".docx"
+                  onChange={handleProcessTemplate}
+                  disabled={processing}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  The template will be processed and placeholders filled automatically
+                </p>
+              </div>
+
+              {processing && (
+                <div className="flex items-center space-x-2 text-green-600">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                  <span className="text-sm">Processing template...</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div className="text-red-700 text-sm">{error}</div>
+                </div>
+              )}
+
+              {success && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                  <div className="text-green-700 text-sm">{success}</div>
+                  {downloadUrl && (
+                    <button
+                      onClick={downloadTemplate}
+                      className="mt-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                    >
+                      Download Filled Template
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
+          {/* Progress Indicator */}
           {processing && (
-            <div className="flex items-center space-x-2 text-green-600">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-              <span className="text-sm">Processing template...</span>
-            </div>
-          )}
+            <div className="w-80 bg-gray-50 rounded-lg p-4 border-l-4 border-green-500">
+              <h4 className="font-semibold text-gray-900 mb-3 text-center">
+                Processing Progress
+              </h4>
+              
+              {/* Progress Bar */}
+              <div className="mb-4">
+                <div className="flex justify-between text-sm text-gray-600 mb-1">
+                  <span>Progress</span>
+                  <span>{Math.round(progress)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div 
+                    className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+              </div>
 
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-              <div className="text-red-700 text-sm">{error}</div>
-            </div>
-          )}
+              {/* Current Stage */}
+              <div className="mb-4">
+                <div className="text-sm font-medium text-gray-700 mb-1">
+                  Current Stage:
+                </div>
+                <div className="text-sm text-gray-600 flex items-center">
+                  <div className="animate-pulse w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                  {progressStage}
+                </div>
+              </div>
 
-          {success && (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-              <div className="text-green-700 text-sm">{success}</div>
-              {downloadUrl && (
-                <button
-                  onClick={downloadTemplate}
-                  className="mt-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                >
-                  Download Filled Template
-                </button>
+              {/* Estimated Time */}
+              {estimatedTime > 0 && (
+                <div className="mb-4">
+                  <div className="text-sm font-medium text-gray-700 mb-1">
+                    Estimated Time Remaining:
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {estimatedTime > 60 
+                      ? `${Math.floor(estimatedTime / 60)}m ${estimatedTime % 60}s`
+                      : `${estimatedTime}s`
+                    }
+                  </div>
+                </div>
               )}
+
+              {/* Progress Stats */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Template Analysis</span>
+                  <span>{progress >= 30 ? '✓' : '○'}</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Knowledge Search</span>
+                  <span>{progress >= 60 ? '✓' : '○'}</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Content Generation</span>
+                  <span>{progress >= 85 ? '✓' : '○'}</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Document Assembly</span>
+                  <span>{progress >= 95 ? '✓' : '○'}</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
