@@ -1,4 +1,5 @@
 // API configuration and utilities
+import { API_BASE_URL as BASE_URL } from '@/config/api';
 
 // Type definitions
 export interface Device {
@@ -64,7 +65,7 @@ export interface UploadResponse {
   missing_fields?: string[];
 }
 
-const API_BASE_URL = 'https://rag-fill2-1.onrender.com';
+const API_BASE_URL = BASE_URL;
 
 export const apiEndpoints = {
   devices: {
@@ -90,6 +91,10 @@ export const apiEndpoints = {
     analyze: () => `${API_BASE_URL}/api/templates/analyze`,
     uploadAndFill: () => `${API_BASE_URL}/api/templates/upload-and-fill`,
     download: (filename: string) => `${API_BASE_URL}/api/templates/download/${filename}`,
+  },
+  csv: {
+    process: () => `${API_BASE_URL}/api/csv/process`,
+    download: (filename: string) => `${API_BASE_URL}/api/csv/download/${filename}`,
   },
 } as const;
 
@@ -255,4 +260,9 @@ export const templateApi = {
     uploadFile<TemplateAnalysis>(apiEndpoints.templates.analyze(), file, { device_id: deviceId }),
   uploadAndFill: (file: File, deviceId: string) =>
     uploadFile<UploadResponse>(apiEndpoints.templates.uploadAndFill(), file, { device_id: deviceId }),
+};
+
+export const csvApi = {
+  process: (file: File, deviceId: string) =>
+    uploadFile<UploadResponse>(apiEndpoints.csv.process(), file, { device_id: deviceId }),
 };

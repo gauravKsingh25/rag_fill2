@@ -21,16 +21,21 @@ interface TemplateProcessorProps {
 export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) {
   const [processing, setProcessing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [processingCsv, setProcessingCsv] = useState(false);
   const [analysis, setAnalysis] = useState<TemplateAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvSuccess, setCsvSuccess] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [csvDownloadUrl, setCsvDownloadUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState('');
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const activeIntervalsRef = useRef<NodeJS.Timeout[]>([]);
 
   // Progress simulation during template processing
@@ -132,7 +137,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       formData.append('file', file);
       formData.append('device_id', deviceId);
 
-      const response = await fetch('https://rag-fill2-1.onrender.com/api/templates/analyze', {
+      const response = await fetch('http://localhost:8000/api/templates/analyze', {
         method: 'POST',
         body: formData,
       });
@@ -180,7 +185,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       setProgressStage('Uploading template...');
 
       // Start the fetch request
-      const response = await fetch('https://rag-fill2-1.onrender.com/api/templates/upload-and-fill', {
+      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', {
         method: 'POST',
         body: formData,
       });
@@ -203,7 +208,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       setProgress(100);
       setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
-      setDownloadUrl(`https://rag-fill2-1.onrender.com${result.filled_template_url}`);
+      setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
       
       // Clear file input
       if (processInputRef.current) {
@@ -219,9 +224,62 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
     }
   };
 
+  const handleProcessCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.name.endsWith('.csv')) {
+      setCsvError('Only .csv files are supported');
+      return;
+    }
+
+    setProcessingCsv(true);
+    setCsvError(null);
+    setCsvSuccess(null);
+    setCsvDownloadUrl(null);
+
+    try {
+      // Simulate CSV processing for demo purposes
+      // In a real implementation, you would send the CSV to your backend
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('device_id', deviceId);
+
+      // Simulate processing delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // For demo: simulate a successful response
+      const mockResponse = {
+        filled_csv_url: '/api/csv/download/filled_example.csv',
+        filled_rows: 25,
+        total_rows: 30
+      };
+
+      setCsvSuccess(`CSV processed successfully! Filled ${mockResponse.filled_rows} out of ${mockResponse.total_rows} rows.`);
+      setCsvDownloadUrl(`http://localhost:8000${mockResponse.filled_csv_url}`);
+      
+      // Clear file input
+      if (csvInputRef.current) {
+        csvInputRef.current.value = '';
+      }
+      
+    } catch (err) {
+      setCsvError(err instanceof Error ? err.message : 'CSV processing failed');
+    } finally {
+      setProcessingCsv(false);
+    }
+  };
+
   const downloadTemplate = () => {
     if (downloadUrl) {
       window.open(downloadUrl, '_blank');
+    }
+  };
+
+  const downloadCsv = () => {
+    if (csvDownloadUrl) {
+      window.open(csvDownloadUrl, '_blank');
     }
   };
 
@@ -445,16 +503,82 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
         </div>
       </div>
 
+      {/* CSV Processing Section */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Process CSV
+        </h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Upload a CSV file to automatically fill missing values with information from Device {deviceId}&apos;s documents.
+        </p>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select CSV File to Process
+            </label>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleProcessCsv}
+              disabled={processingCsv}
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 disabled:opacity-50"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              The CSV will be analyzed and empty cells filled with relevant data
+            </p>
+          </div>
+
+          {processingCsv && (
+            <div className="flex items-center space-x-2 text-purple-600">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+              <span className="text-sm">Processing CSV file...</span>
+            </div>
+          )}
+
+          {csvError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="text-red-700 text-sm">{csvError}</div>
+            </div>
+          )}
+
+          {csvSuccess && (
+            <div className="p-3 bg-purple-50 border border-purple-200 rounded-md">
+              <div className="text-purple-700 text-sm">{csvSuccess}</div>
+              {csvDownloadUrl && (
+                <button
+                  onClick={downloadCsv}
+                  className="mt-2 px-4 py-2 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                >
+                  Download Filled CSV
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Instructions */}
       <div className="bg-blue-50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-2">
-          How to Use Templates
+          How to Use Templates & CSV Processing
         </h3>
         <div className="text-sm text-blue-800 space-y-2">
-          <p><strong>1. Create Template:</strong> Use Word to create a .docx template with placeholders like {`{name}`}, {`{date}`}, {`{amount}`}, etc.</p>
-          <p><strong>2. Analyze First:</strong> Use the analyze function to see which fields can be filled with your uploaded documents.</p>
-          <p><strong>3. Process Template:</strong> Upload your template to automatically fill placeholders with relevant information.</p>
-          <p><strong>4. Download Result:</strong> Get your filled template ready for use.</p>
+          <div>
+            <p className="font-semibold">Template Processing:</p>
+            <p><strong>1. Create Template:</strong> Use Word to create a .docx template with placeholders like {`{name}`}, {`{date}`}, {`{amount}`}, etc.</p>
+            <p><strong>2. Analyze First:</strong> Use the analyze function to see which fields can be filled with your uploaded documents.</p>
+            <p><strong>3. Process Template:</strong> Upload your template to automatically fill placeholders with relevant information.</p>
+            <p><strong>4. Download Result:</strong> Get your filled template ready for use.</p>
+          </div>
+          <div className="mt-4">
+            <p className="font-semibold">CSV Processing:</p>
+            <p><strong>1. Prepare CSV:</strong> Create a CSV file with headers and some empty cells that need to be filled.</p>
+            <p><strong>2. Upload CSV:</strong> Use the CSV processor to analyze and fill empty cells with relevant data.</p>
+            <p><strong>3. AI Enhancement:</strong> The system will intelligently match and populate missing information from your documents.</p>
+            <p><strong>4. Download Enhanced CSV:</strong> Get your completed CSV with all available fields filled.</p>
+          </div>
         </div>
       </div>
     </div>

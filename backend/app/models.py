@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -7,6 +7,32 @@ class DeviceStatus(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     MAINTENANCE = "maintenance"
+
+# User Authentication Models
+class UserBase(BaseModel):
+    email: EmailStr = Field(..., description="User email address")
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8, description="User password (minimum 8 characters)")
+
+class UserLogin(BaseModel):
+    email: EmailStr = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+class User(UserBase):
+    id: str = Field(..., description="Unique user identifier")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_active: bool = Field(default=True, description="Whether the user account is active")
+
+class UserInDB(User):
+    hashed_password: str = Field(..., description="Hashed password")
+
+class Token(BaseModel):
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field(default="bearer", description="Token type")
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
 
 class Device(BaseModel):
     id: str = Field(..., description="Unique device identifier")

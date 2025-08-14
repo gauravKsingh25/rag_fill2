@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
-from app.routers import devices, documents, chat, templates
-from app.database import connect_to_mongo, close_mongo_connection
+from app.routers import devices, documents, chat, templates, auth
+from app.database import connect_to_mongo, close_mongo_connection, user_repo
 from app.services.pinecone_service import pinecone_service
+from app.core.auth import get_password_hash
 
 load_dotenv()
 
@@ -45,6 +46,26 @@ async def lifespan(app: FastAPI):
             startup_warnings.append("Pinecone: Using local vector storage fallback")
     except Exception as e:
         startup_warnings.append(f"Pinecone: {e}")
+    
+    # Create first user if it doesn't exist
+    try:
+        email = "gaurav@gmail.com"
+        password = "hindustan1"
+        
+        existing_user = await user_repo.get_user_by_email(email)
+        if not existing_user:
+            hashed_password = get_password_hash(password)
+            user_data = {
+                "email": email,
+                "hashed_password": hashed_password
+            }
+            user_id = await user_repo.create_user(user_data)
+            print(f"✅ Created first user: {email}")
+            print(f"🔐 Login credentials - Email: {email}, Password: {password}")
+        else:
+            print(f"✅ First user already exists: {email}")
+    except Exception as e:
+        print(f"⚠️  Could not create first user: {e}")
     
     # Report startup status
     if startup_errors:
@@ -88,13 +109,14 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://rag-fill2.onrender.com", "http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include routers
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])

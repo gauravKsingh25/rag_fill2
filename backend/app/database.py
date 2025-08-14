@@ -324,3 +324,142 @@ class ConversationRepository:
 # Global repository instances
 document_repo = DocumentRepository()
 conversation_repo = ConversationRepository()
+
+class UserRepository:
+    """Repository for user operations"""
+    
+    def __init__(self):
+        self.collection_name = "users"
+        self.local_file = LOCAL_STORAGE_PATH / "users.json"
+    
+    def _load_local_users(self) -> List[Dict[str, Any]]:
+        """Load users from local storage"""
+        if self.local_file.exists():
+            try:
+                with open(self.local_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load local users: {e}")
+        return []
+    
+    def _save_local_users(self, users: List[Dict[str, Any]]) -> bool:
+        """Save users to local storage"""
+        try:
+            with open(self.local_file, 'w', encoding='utf-8') as f:
+                json.dump(users, f, indent=2, default=str)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save local users: {e}")
+            return False
+    
+    async def create_user(self, user_data: Dict[str, Any]) -> str:
+        """Create a new user"""
+        try:
+            user_data["created_at"] = datetime.utcnow()
+            user_data["is_active"] = True
+            
+            if mongodb.database is not None:
+                collection = mongodb.database[self.collection_name]
+                # Check if user already exists
+                existing_user = await collection.find_one({"email": user_data["email"]})
+                if existing_user:
+                    raise ValueError("User with this email already exists")
+                
+                result = await collection.insert_one(user_data)
+                return str(result.inserted_id)
+            else:
+                users = self._load_local_users()
+                # Check if user already exists
+                if any(user.get("email") == user_data["email"] for user in users):
+                    raise ValueError("User with this email already exists")
+                
+                user_id = f"user_{len(users) + 1}_{int(datetime.utcnow().timestamp())}"
+                user_data["id"] = user_id
+                user_data["created_at"] = user_data["created_at"].isoformat()
+                users.append(user_data)
+                
+                if self._save_local_users(users):
+                    logger.info(f"✅ Created user in local storage: {user_data['email']}")
+                    return user_id
+                else:
+                    raise Exception("Failed to save user to local storage")
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to create user: {e}")
+            raise
+    
+    async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get user by email"""
+        try:
+            if mongodb.database is not None:
+                from app.models import UserInDB
+                collection = mongodb.database[self.collection_name]
+                user_doc = await collection.find_one({"email": email})
+                if user_doc:
+                    user_doc = serialize_document(user_doc)
+                    # Convert to UserInDB model
+                    user_doc["id"] = user_doc.get("_id", user_doc.get("id"))
+                    return UserInDB(**user_doc)
+                return None
+            else:
+                from app.models import UserInDB
+                users = self._load_local_users()
+                for user in users:
+                    if user.get("email") == email:
+                        # Convert to UserInDB model
+                        return UserInDB(**user)
+                return None
+        except Exception as e:
+            logger.error(f"❌ Failed to get user {email}: {e}")
+            return None
+    
+    async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user by ID"""
+        try:
+            if mongodb.database is not None:
+                from app.models import UserInDB
+                collection = mongodb.database[self.collection_name]
+                user_doc = await collection.find_one({"_id": ObjectId(user_id)})
+                if user_doc:
+                    user_doc = serialize_document(user_doc)
+                    user_doc["id"] = user_doc.get("_id", user_doc.get("id"))
+                    return UserInDB(**user_doc)
+                return None
+            else:
+                from app.models import UserInDB
+                users = self._load_local_users()
+                for user in users:
+                    if user.get("id") == user_id or user.get("_id") == user_id:
+                        return UserInDB(**user)
+                return None
+        except Exception as e:
+            logger.error(f"❌ Failed to get user {user_id}: {e}")
+            return None
+    
+    async def update_user(self, user_id: str, update_data: Dict[str, Any]) -> bool:
+        """Update user data"""
+        try:
+            if mongodb.database is not None:
+                collection = mongodb.database[self.collection_name]
+                update_data["updated_at"] = datetime.utcnow()
+                result = await collection.update_one(
+                    {"_id": ObjectId(user_id)},
+                    {"$set": update_data}
+                )
+                return result.modified_count > 0
+            else:
+                users = self._load_local_users()
+                for i, user in enumerate(users):
+                    if user.get("id") == user_id or user.get("_id") == user_id:
+                        update_data["updated_at"] = datetime.utcnow().isoformat()
+                        users[i].update(update_data)
+                        return self._save_local_users(users)
+                return False
+        except Exception as e:
+            logger.error(f"❌ Failed to update user {user_id}: {e}")
+            return False
+
+# Global repository instances (updated)
+document_repo = DocumentRepository()
+conversation_repo = ConversationRepository()
+user_repo = UserRepository()
