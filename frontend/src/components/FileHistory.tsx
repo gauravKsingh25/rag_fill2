@@ -15,9 +15,11 @@ interface FileHistoryProps {
 }
 
 export default function FileHistory({ history }: FileHistoryProps) {
-  const [filter, setFilter] = useState<'all' | 'analyzed' | 'filled'>('all');
+  // filter UI removed — show full history list
   const [remoteHistory, setRemoteHistory] = useState<FileHistoryItem[] | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // upload moved to the Favorites sidebar
 
   // Use NEXT_PUBLIC_API_BASE for correct backend endpoint
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
@@ -48,32 +50,6 @@ export default function FileHistory({ history }: FileHistoryProps) {
   }, [API_BASE]);
 
   const combinedHistory = remoteHistory ?? history;
-  const filteredHistory =
-    filter === 'all' ? combinedHistory : combinedHistory.filter(item => item.type === filter);
-
-  // Upload file + metadata to backend. Backend will upload to GCS when configured.
-  // helper to upload files to backend; currently may be called by parent components
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async function uploadToHistory(file: File, type: 'analyzed' | 'filled') {
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('type', type);
-
-      const res = await fetch(`${API_BASE}/api/file-history/`, {
-        method: 'POST',
-        body: form,
-      });
-      if (res.ok) {
-        const added = await res.json();
-        setRemoteHistory(prev => prev ? [added, ...prev] : [added]);
-      } else {
-        console.error('Upload failed', await res.text());
-      }
-    } catch (e) {
-      console.error('Error uploading file', e);
-    }
-  }
 
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6 min-w-[340px]">
@@ -84,42 +60,23 @@ export default function FileHistory({ history }: FileHistoryProps) {
         <div className="text-red-600 text-sm text-center py-8">{apiBaseError}</div>
       ) : (
         <>
-          <div className="mb-4 flex gap-2">
-            <button
-              className={`px-3 py-1 rounded text-sm font-medium border ${filter === 'all' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-              onClick={() => setFilter('all')}
-            >
-              All
-            </button>
-            <button
-              className={`px-3 py-1 rounded text-sm font-medium border ${filter === 'analyzed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-              onClick={() => setFilter('analyzed')}
-            >
-              Analyzed
-            </button>
-            <button
-              className={`px-3 py-1 rounded text-sm font-medium border ${filter === 'filled' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-              onClick={() => setFilter('filled')}
-            >
-              Filled
-            </button>
-          </div>
+          {/* Upload control removed from File History — use Favorites sidebar to add files */}
           <div className="space-y-3">
             {loading ? (
               <div className="text-blue-400 text-sm text-center py-8">
                 Loading file history...
               </div>
-            ) : filteredHistory.length === 0 ? (
+            ) : combinedHistory.length === 0 ? (
               <div className="text-gray-400 text-sm text-center py-8">
                 No file history yet.
               </div>
             ) : (
-              filteredHistory.map(item => (
+              combinedHistory.map(item => (
                 <div key={item.url} className="flex items-center justify-between bg-gray-50 rounded p-3 border border-gray-100">
                   <div>
                     <div className="font-medium text-gray-900 text-sm">{item.filename}</div>
                     <div className="text-xs text-gray-500">
-                      {item.type === 'analyzed' ? 'Analyzed' : 'Filled'} · {new Date(item.timestamp).toLocaleString()}
+                      {new Date(item.timestamp).toLocaleString()}
                       {item.size_bytes ? ` · ${Math.round(item.size_bytes / 1024)} KB` : ''}
                       {item.content_type ? ` · ${item.content_type}` : ''}
                     </div>
@@ -141,3 +98,4 @@ export default function FileHistory({ history }: FileHistoryProps) {
     </div>
   );
 }
+         

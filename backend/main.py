@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
-from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history
+from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history, favorites
 from app.database import connect_to_mongo, close_mongo_connection, user_repo
 from app.services.pinecone_service import pinecone_service
 from app.core.auth import get_password_hash
@@ -124,6 +124,7 @@ app.include_router(templates.router, prefix="/api/templates", tags=["templates"]
 app.include_router(enhanced_csv_router.router, tags=["enhanced-csv"])
 app.include_router(robust_csv_router.router, tags=["robust-csv"])
 app.include_router(file_history.router, prefix="/api/file-history", tags=["file-history"])
+app.include_router(favorites.router)  # Include favorites router (router in favorites.py already defines its own prefix)
 
 @app.get("/")
 async def root():
@@ -132,6 +133,11 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "services": "operational"}
+
+@app.get("/api/device-vectors")
+async def get_device_vectors():
+    json_path = os.path.join(os.path.dirname(__file__), "device_DB_vectors.json")
+    return FileResponse(json_path, media_type="application/json")
 
 if __name__ == "__main__":
     import uvicorn

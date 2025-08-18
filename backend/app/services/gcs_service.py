@@ -8,17 +8,29 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Expect environment variables:
-# - GCS_BUCKET
-# - GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON)
+# - GCS_BUCKET (optional)
+# - GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON; attempt to auto-resolve if relative)
 
-GCS_BUCKET = os.getenv("GCS_BUCKET")
+GCS_BUCKET = os.getenv("GCS_BUCKET")  # do NOT raise at import-time; allow app to start without GCS
 if not GCS_BUCKET or not GCS_BUCKET.strip():
-    logger.error("GCS_BUCKET environment variable is not set or blank. GCS integration will not work.")
-    raise RuntimeError("GCS_BUCKET environment variable is required and must not be blank.")
+    logger.warning("GCS_BUCKET environment variable is not set or blank. GCS integration disabled until configured.")
+    GCS_BUCKET = None  # normalize to None
 
-# Ensure GOOGLE_APPLICATION_CREDENTIALS is set via environment variable only
-if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-    logger.warning("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set. GCS client may not work.")
+# Normalize GOOGLE_APPLICATION_CREDENTIALS if provided as a relative path (resolve against backend root)
+_gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if _gac:
+    gac_path = Path(_gac)
+    if not gac_path.is_absolute():
+        # backend root is three parents up from this file: backend/app/services -> backend
+        backend_root = Path(__file__).resolve().parents[3]
+        candidate = (backend_root / gac_path).resolve()
+        if candidate.exists():
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(candidate)
+            logger.info(f"Resolved relative GOOGLE_APPLICATION_CREDENTIALS to absolute path: {candidate}")
+        else:
+            logger.debug(f"GOOGLE_APPLICATION_CREDENTIALS provided but could not resolve relative path: {gac_path} (checked {candidate})")
+else:
+    logger.debug("GOOGLE_APPLICATION_CREDENTIALS is not set in environment; GCS client may not authenticate.")
 
 _client: Optional[storage.Client] = None
 _bucket: Optional[storage.Bucket] = None
@@ -28,14 +40,24 @@ def _ensure_client():
     global _client, _bucket
     if _client is not None:
         return
+    if not GCS_BUCKET:
+        # No bucket configured; leave client None
+        logger.debug("GCS_BUCKET not configured; skipping GCS client initialization.")
+        _client = None
+        _bucket = None
+        return
     try:
         # storage.Client will use GOOGLE_APPLICATION_CREDENTIALS if set
         _client = storage.Client()
-        if GCS_BUCKET:
-            _bucket = _client.bucket(GCS_BUCKET)
-        logger.info("Initialized GCS client")
+        _bucket = _client.bucket(GCS_BUCKET)
+        logger.info("Initialized GCS client and bucket reference")
     except Exception as e:
-        logger.warning(f"GCS client not available: {e}")
+        # Do not crash the app — keep client None and log helpful guidance
+        logger.warning(
+            "GCS client initialization failed. GCS functionality will be disabled.\n"
+            "Common causes: GOOGLE_APPLICATION_CREDENTIALS missing/invalid, or service account key expired/rotated.\n"
+            f"Error: {e}"
+        )
         _client = None
         _bucket = None
 
@@ -83,7 +105,12 @@ def upload_fileobj(file_obj, destination_name: str, content_type: Optional[str] 
         file_obj.seek(0)
     except Exception:
         pass
-    blob.upload_from_file(file_obj, content_type=content_type)
+    try:
+        blob.upload_from_file(file_obj, content_type=content_type)
+    except Exception as e:
+        # Attach guidance for common auth problems
+        logger.error(f"GCS upload failed for {destination_name}: {e}")
+        raise
     logger.info(f"Uploaded to GCS: {destination_name}")
     return destination_name
 
@@ -94,5 +121,6 @@ def generate_signed_url(blob_name: str, expires_seconds: int = 3600) -> str:
         raise RuntimeError("GCS not configured")
     blob = _bucket.blob(blob_name)
     expiration = datetime.utcnow() + timedelta(seconds=expires_seconds)
+    # generate_signed_url may raise helpful auth errors; let caller handle
     url = blob.generate_signed_url(expiration=expiration)
     return url

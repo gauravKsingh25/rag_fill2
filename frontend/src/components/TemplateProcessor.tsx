@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { templateApi, csvApi, ApiError } from '@/lib/api';
 import { API_BASE_URL } from '@/config/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { FileHistoryItem } from './FileHistory';
 
 interface TemplateAnalysis {
   device_id: string;
@@ -32,8 +33,6 @@ interface CSVAnalysis {
   columns: string[];
 }
 
-import { FileHistoryItem } from './FileHistory';
-
 interface TemplateProcessorProps {
   deviceId: string;
   onFileHistoryUpdate?: (item: FileHistoryItem) => void;
@@ -56,6 +55,10 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const [progressStage, setProgressStage] = useState('');
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
+  // Favorites state used by fetchFavorites (restore to avoid ReferenceError)
+  const [favorites, setFavorites] = useState<FileHistoryItem[]>([]);
+  const [favLoading, setFavLoading] = useState(false);
+  const [favError, setFavError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -149,7 +152,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     formData.append('type', type);
     formData.append('timestamp', timestamp || new Date().toISOString());
     try {
-      const response = await fetch('http://localhost:8000/api/file-history/', {
+      const response = await fetch('http://localhost:8000/api/favorites/', {
         method: 'POST',
         body: formData,
       });
@@ -161,6 +164,59 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     }
   }
 
+  // Minimal helper to POST favorite metadata or file to backend (no local UI state here)
+  async function postFavorite(formData: FormData) {
+    try {
+      await fetch('http://localhost:8000/api/favorites/', {
+        method: 'POST',
+        body: formData,
+      });
+    } catch (e) {
+      // ignore — sidebar will reflect server state on refresh
+      console.error('Failed to post favorite', e);
+    }
+  }
+
+  async function addFavoriteFromFile_noUI(file: File, type: 'analyzed' | 'filled', url?: string) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('type', type);
+    form.append('filename', file.name);
+    if (url) form.append('url', url);
+    await postFavorite(form);
+  }
+
+  async function addFavoriteMetadata_noUI(metadata: FileHistoryItem) {
+    const form = new FormData();
+    form.append('filename', metadata.filename);
+    form.append('type', metadata.type);
+    form.append('timestamp', metadata.timestamp);
+    if (metadata.url) form.append('url', metadata.url);
+    await postFavorite(form);
+  }
+
+  // Fetch favorites from backend
+  async function fetchFavorites() {
+    setFavLoading(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/favorites/');
+      if (!res.ok) throw new Error('Failed to load favorites');
+      const items = await res.json();
+      setFavorites(items);
+    } catch (e) {
+      setFavError((e as Error).message || 'Failed to load favorites');
+      setFavorites([]);
+    } finally {
+      setFavLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // load favorites once on mount
+    fetchFavorites();
+  }, []);
+
+  // Update: when analysis or processing completes, offer adding to favorites
   const handleAnalyzeTemplate = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -202,7 +258,13 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       }
       // Upload analyzed template to GCS for file history
       await uploadFileToGCS(file, 'analyzed', new Date().toISOString());
-      
+      // Also add metadata to favorites (sidebar will pick it up on refresh)
+      await addFavoriteMetadata_noUI({
+        filename: result.template_filename,
+        type: 'analyzed',
+        url: '',
+        timestamp: new Date().toISOString()
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
@@ -272,6 +334,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       }
       // Upload processed template to GCS for file history
       await uploadFileToGCS(file, 'filled', new Date().toISOString());
+      // Also add to favorites (include url if available)
+      await addFavoriteFromFile_noUI(file, 'filled', `http://localhost:8000${result.filled_template_url}`);
       
       // Clear file input
       if (processInputRef.current) {
@@ -622,6 +686,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
               </div>
             </div>
           )}
+
+          {/* Favorites UI intentionally removed from here — moved to the right-side tab sidebar */}
         </div>
       </div>
 

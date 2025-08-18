@@ -5,6 +5,7 @@ import DeviceSelector from '@/components/DeviceSelector';
 import ChatInterface from '@/components/ChatInterface';
 import DocumentUpload from '@/components/DocumentUpload';
 import TemplateProcessor from '@/components/TemplateProcessor';
+import FavoritesSidebar from '@/components/FavoritesSidebar';
 import FileHistory, { FileHistoryItem } from '@/components/FileHistory';
 
 export default function Home() {
@@ -237,10 +238,17 @@ export default function Home() {
                 </div>
               )}
               {activeTab === 'template' && (
-                <TemplateProcessor 
-                  deviceId={selectedDevice}
-                  onFileHistoryUpdate={(item: FileHistoryItem) => setFileHistory(prev => [item, ...prev])}
-                />
+                <div className="flex gap-6">
+                  <div className="flex-1">
+                    <TemplateProcessor 
+                      deviceId={selectedDevice}
+                      onFileHistoryUpdate={(item: FileHistoryItem) => setFileHistory(prev => [item, ...prev])}
+                    />
+                  </div>
+                  <div className="w-72">
+                    <FavoritesSidebar />
+                  </div>
+                </div>
               )}
               {activeTab === 'history' && (
                 <FileHistory history={fileHistory} />
