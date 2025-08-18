@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
-from app.routers import devices, documents, chat, templates, auth
+from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history
 from app.database import connect_to_mongo, close_mongo_connection, user_repo
 from app.services.pinecone_service import pinecone_service
 from app.core.auth import get_password_hash
@@ -121,6 +121,9 @@ app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
+app.include_router(enhanced_csv_router.router, tags=["enhanced-csv"])
+app.include_router(robust_csv_router.router, tags=["robust-csv"])
+app.include_router(file_history.router, prefix="/api/file-history", tags=["file-history"])
 
 @app.get("/")
 async def root():

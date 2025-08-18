@@ -5,10 +5,53 @@ import DeviceSelector from '@/components/DeviceSelector';
 import ChatInterface from '@/components/ChatInterface';
 import DocumentUpload from '@/components/DocumentUpload';
 import TemplateProcessor from '@/components/TemplateProcessor';
+import FileHistory, { FileHistoryItem } from '@/components/FileHistory';
 
 export default function Home() {
   const [selectedDevice, setSelectedDevice] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'chat' | 'upload' | 'template'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'upload' | 'template' | 'history'>('chat');
+  const [fileHistory, setFileHistory] = useState<FileHistoryItem[]>([]);
+
+  // Endpoint management state
+  const [endpointInput, setEndpointInput] = useState('');
+  const [savedEndpoints, setSavedEndpoints] = useState<string[]>([]);
+
+  // Postman-like GET request builder state
+  const [getUrl, setGetUrl] = useState('');
+  const [headers, setHeaders] = useState<{ key: string; value: string }[]>([]);
+  const [body, setBody] = useState('');
+  const [getResponse, setGetResponse] = useState<string>('');
+
+  // Add endpoint to list
+  const handleSaveEndpoint = () => {
+    if (endpointInput && !savedEndpoints.includes(endpointInput)) {
+      setSavedEndpoints([endpointInput, ...savedEndpoints]);
+      setEndpointInput('');
+    }
+  };
+
+  // Add header row
+  const handleAddHeader = () => {
+    setHeaders([...headers, { key: '', value: '' }]);
+  };
+
+  // Update header value
+  const handleHeaderChange = (idx: number, field: 'key' | 'value', value: string) => {
+    setHeaders(headers.map((h, i) => i === idx ? { ...h, [field]: value } : h));
+  };
+
+  // Remove header row
+  const handleRemoveHeader = (idx: number) => {
+    setHeaders(headers.filter((_, i) => i !== idx));
+  };
+
+  // Simulate GET request (dummy)
+  const handleSendGet = () => {
+    // Just show what would be sent
+    setGetResponse(
+      `GET ${getUrl}\nHeaders: ${JSON.stringify(headers.filter(h => h.key), null, 2)}\nBody: ${body}`
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -75,6 +118,17 @@ export default function Home() {
                 >
                   Template Processor
                 </button>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'history'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                  style={{marginLeft: 0}}
+                >
+                  File History
+                </button>
               </nav>
             </div>
 
@@ -84,10 +138,112 @@ export default function Home() {
                 <ChatInterface deviceId={selectedDevice} />
               )}
               {activeTab === 'upload' && (
-                <DocumentUpload deviceId={selectedDevice} />
+                <div className="space-y-8">
+                  {/* Endpoint Save UI */}
+                  <div className="bg-gray-50 p-6 rounded shadow border">
+                    <h2 className="text-2xl font-bold mb-2 text-gray-900">Save Endpoint</h2>
+                    <div className="flex gap-2 mb-2">
+                      <input
+                        type="text"
+                        className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 bg-white focus:border-blue-500 focus:outline-none"
+                        placeholder="Enter endpoint URL..."
+                        value={endpointInput}
+                        onChange={e => setEndpointInput(e.target.value)}
+                      />
+                      <button
+                        className="bg-blue-500 text-white px-4 py-1 rounded shadow hover:bg-blue-600 transition"
+                        onClick={handleSaveEndpoint}
+                      >Save</button>
+                    </div>
+                    {savedEndpoints.length > 0 && (
+                      <div className="mt-2">
+                        <h3 className="font-semibold mb-1 text-gray-900">Saved Endpoints:</h3>
+                        <ul className="list-disc pl-5 text-sm text-gray-700">
+                          {savedEndpoints.map((ep, idx) => (
+                            <li key={idx}>{ep}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* GET Request Builder */}
+                  <div className="bg-gray-50 p-6 rounded shadow border">
+                    <h2 className="text-2xl font-bold mb-2 text-gray-900">GET Request Builder</h2>
+                    <div className="mb-2">
+                      <input
+                        type="text"
+                        className="border border-gray-300 rounded px-2 py-1 w-full text-gray-900 bg-white focus:border-blue-500 focus:outline-none"
+                        placeholder="Enter GET endpoint URL..."
+                        value={getUrl}
+                        onChange={e => setGetUrl(e.target.value)}
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-semibold text-gray-900">Headers</span>
+                        <button
+                          className="bg-gray-200 px-2 py-1 rounded text-xs text-gray-900 hover:bg-gray-300 transition"
+                          onClick={handleAddHeader}
+                        >Add Header</button>
+                      </div>
+                      {headers.map((h, idx) => (
+                        <div key={idx} className="flex gap-2 mb-1">
+                          <input
+                            type="text"
+                            className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 bg-white focus:border-blue-500 focus:outline-none"
+                            placeholder="Key"
+                            value={h.key}
+                            onChange={e => handleHeaderChange(idx, 'key', e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 bg-white focus:border-blue-500 focus:outline-none"
+                            placeholder="Value"
+                            value={h.value}
+                            onChange={e => handleHeaderChange(idx, 'value', e.target.value)}
+                          />
+                          <button
+                            className="text-red-500 text-xs hover:underline"
+                            onClick={() => handleRemoveHeader(idx)}
+                          >Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mb-2">
+                      <span className="font-semibold text-gray-900">Body (JSON)</span>
+                      <textarea
+                        className="border border-gray-300 rounded px-2 py-1 w-full mt-1 text-gray-900 bg-white focus:border-blue-500 focus:outline-none"
+                        rows={3}
+                        placeholder="Enter JSON body (for GET, usually empty)"
+                        value={body}
+                        onChange={e => setBody(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      className="bg-green-500 text-white px-4 py-1 rounded shadow hover:bg-green-600 transition"
+                      onClick={handleSendGet}
+                    >Send GET</button>
+                    {getResponse && (
+                      <div className="mt-4 bg-gray-100 p-3 rounded text-sm">
+                        <span className="font-semibold text-gray-900">Simulated Response:</span>
+                        <pre className="mt-1 whitespace-pre-wrap text-gray-700">{getResponse}</pre>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Existing Document Upload UI */}
+                  <DocumentUpload deviceId={selectedDevice} />
+                </div>
               )}
               {activeTab === 'template' && (
-                <TemplateProcessor deviceId={selectedDevice} />
+                <TemplateProcessor 
+                  deviceId={selectedDevice}
+                  onFileHistoryUpdate={(item: FileHistoryItem) => setFileHistory(prev => [item, ...prev])}
+                />
+              )}
+              {activeTab === 'history' && (
+                <FileHistory history={fileHistory} />
               )}
             </div>
           </div>

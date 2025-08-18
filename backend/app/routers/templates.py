@@ -12,10 +12,16 @@ from docx import Document
 from app.models import TemplateRequest, TemplateResponse
 from app.services.gemini_service import gemini_service
 from app.services.pinecone_service import pinecone_service
+from app.services.csv_processor import CSVProcessor
 from app.routers.devices import get_device
+from app.services import gcs_service
+from app.database import mongodb
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Initialize CSV processor
+csv_processor = CSVProcessor()
 
 @router.post("/upload-and-fill", response_model=TemplateResponse)
 async def upload_and_fill_template(
@@ -277,6 +283,40 @@ async def process_template(
         
         # Clean up temp file
         os.unlink(temp_file_path)
+
+        # Try to upload the filled template to GCS and persist metadata so it appears in file history
+        try:
+            if gcs_service.is_available():
+                with open(filled_path, 'rb') as f:
+                    dest_name = f"filled_templates/{filled_filename}"
+                    gcs_service.upload_fileobj(f, dest_name, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                    url = gcs_service.generate_signed_url(dest_name, expires_seconds=3600*24*7)
+
+                    record = {
+                        "filename": filled_filename,
+                        "url": url,
+                        "type": "filled",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "content_type": 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        "size_bytes": Path(filled_path).stat().st_size
+                    }
+
+                    # Persist metadata
+                    if mongodb.database is not None:
+                        coll = mongodb.database.get_collection("file_history")
+                        await coll.insert_one(record)
+                    else:
+                        # Use a simple GCS index blob to track metadata
+                        try:
+                            index_text = gcs_service.download_blob_as_text('file_history/index.json')
+                            import json
+                            items = json.loads(index_text)
+                        except Exception:
+                            items = []
+                        items.insert(0, record)
+                        gcs_service.upload_json(items, 'file_history/index.json')
+        except Exception as e:
+            logger.warning(f"Could not upload filled template to GCS or persist metadata: {e}")
         
         logger.info(f"✅ Template processed: {len(filled_fields)} fields filled, {len(missing_fields)} missing")
         logger.info(f"✅ Filled fields: {list(filled_fields.keys())}")
@@ -806,3 +846,134 @@ async def analyze_template(
     except Exception as e:
         logger.error(f"❌ Failed to analyze template: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to analyze template: {e}")
+
+@router.post("/upload-and-fill-csv")
+async def upload_and_fill_csv(
+    device_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """Upload a CSV file and fill empty cells with device knowledge"""
+    try:
+        # Verify device exists
+        await get_device(device_id)
+        
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(
+                status_code=400,
+                detail="Only .csv files are supported"
+            )
+        
+        # Read CSV content
+        csv_content = await file.read()
+        
+        # Process CSV using RAG knowledge base
+        result = await csv_processor.process_csv_file(
+            csv_content=csv_content,
+            filename=file.filename,
+            device_id=device_id
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to process CSV: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process CSV: {e}")
+
+@router.get("/download-csv/{filename}")
+async def download_filled_csv(filename: str):
+    """Download a filled CSV file"""
+    try:
+        file_path = Path("./filled_templates") / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="CSV file not found")
+        
+        return FileResponse(
+            path=str(file_path),
+            filename=filename,
+            media_type='text/csv'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to download CSV: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download CSV: {e}")
+
+@router.post("/analyze-csv")
+async def analyze_csv(
+    device_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """Analyze a CSV file to show which cells can be filled"""
+    try:
+        # Verify device exists
+        await get_device(device_id)
+        
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(
+                status_code=400,
+                detail="Only .csv files are supported"
+            )
+        
+        # Read and analyze CSV
+        csv_content = await file.read()
+        
+        # Parse CSV to identify empty cells
+        df = csv_processor._parse_csv_content(csv_content)
+        empty_cells = csv_processor._identify_empty_cells(df)
+        
+        # Analyze each empty cell to estimate fillability
+        fillable_cells = 0
+        cell_analysis = {}
+        
+        for cell_info in empty_cells[:10]:  # Analyze first 10 for performance
+            row_idx = cell_info['row']
+            col_name = cell_info['column']
+            
+            # Generate search query for this cell
+            context_info = csv_processor._extract_cell_context(df, row_idx, col_name)
+            queries = await csv_processor._generate_cell_queries(context_info)
+            
+            # Test search for this cell
+            if queries:
+                query_embedding = await gemini_service.get_embedding(queries[0])
+                search_results = await pinecone_service.search_vectors(
+                    query_vector=query_embedding,
+                    device_id=device_id,
+                    top_k=3
+                )
+                
+                can_fill = len(search_results) > 0
+                confidence = search_results[0].score if search_results else 0
+                
+                if can_fill:
+                    fillable_cells += 1
+                
+                cell_key = f"Row {row_idx + 1}, {col_name}"
+                cell_analysis[cell_key] = {
+                    "can_fill": can_fill,
+                    "confidence": confidence,
+                    "sources": len(search_results)
+                }
+        
+        return {
+            "device_id": device_id,
+            "csv_filename": file.filename,
+            "total_rows": len(df),
+            "total_columns": len(df.columns),
+            "total_empty_cells": len(empty_cells),
+            "fillable_cells": fillable_cells,
+            "sample_analysis": cell_analysis,
+            "columns": list(df.columns)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to analyze CSV: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze CSV: {e}")

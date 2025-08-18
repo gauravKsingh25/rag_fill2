@@ -22,7 +22,7 @@ async def upload_document(
         await get_device(device_id)
         
         # Validate file type
-        allowed_extensions = ['.pdf', '.docx', '.txt', '.md']
+        allowed_extensions = ['.pdf', '.docx', '.txt', '.md', '.csv']
         file_extension = file.filename.split('.')[-1].lower()
         if f'.{file_extension}' not in allowed_extensions:
             raise HTTPException(

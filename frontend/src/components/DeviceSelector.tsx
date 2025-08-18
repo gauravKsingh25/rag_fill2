@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { deviceApi, ApiError } from '@/lib/api';
 
 interface Device {
   id: string;
@@ -25,14 +26,14 @@ export default function DeviceSelector({ selectedDevice, onDeviceSelect }: Devic
 
   const fetchDevices = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/devices/');
-      if (!response.ok) {
-        throw new Error('Failed to fetch devices');
-      }
-      const data = await response.json();
+      const data = await deviceApi.list();
       setDevices(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      }
     } finally {
       setLoading(false);
     }

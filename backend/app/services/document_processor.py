@@ -2,6 +2,8 @@ import os
 import uuid
 import json
 import aiofiles
+import csv
+import pandas as pd
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import logging
@@ -9,7 +11,7 @@ from docx import Document
 import PyPDF2
 import re
 import unicodedata
-from io import BytesIO
+from io import BytesIO, StringIO
 from dotenv import load_dotenv
 
 # Optional imports for enhanced PDF processing
@@ -130,6 +132,9 @@ class DocumentProcessor:
             
             elif file_extension == '.md':
                 extracted_text = file_content.decode('utf-8')
+            
+            elif file_extension == '.csv':
+                extracted_text = self._extract_text_from_csv(file_content)
             
             else:
                 raise ValueError(f"Unsupported file type: {file_extension}")
@@ -613,6 +618,132 @@ class DocumentProcessor:
             logger.error(f"❌ Failed to extract text from DOCX: {e}")
             raise
     
+    def _extract_text_from_csv(self, file_content: bytes) -> str:
+        """Extract and structure text from CSV file for optimal chunking"""
+        try:
+            logger.info("📊 Starting CSV text extraction...")
+            
+            # Try different encodings to read the CSV
+            encodings = ['utf-8', 'utf-8-sig', 'iso-8859-1', 'cp1252']
+            df = None
+            
+            for encoding in encodings:
+                try:
+                    csv_text = file_content.decode(encoding)
+                    
+                    # Try different delimiters
+                    delimiters = [',', ';', '\t', '|']
+                    
+                    for delimiter in delimiters:
+                        try:
+                            df = pd.read_csv(StringIO(csv_text), delimiter=delimiter)
+                            
+                            # Check if parsing was successful (should have multiple columns)
+                            if len(df.columns) > 1 and len(df) > 0:
+                                logger.info(f"✅ Successfully parsed CSV with delimiter '{delimiter}' and encoding '{encoding}'")
+                                break
+                        except:
+                            continue
+                    
+                    if df is not None and len(df.columns) > 1:
+                        break
+                        
+                except UnicodeDecodeError:
+                    continue
+            
+            if df is None or len(df.columns) <= 1:
+                raise ValueError("Could not parse CSV file with any supported encoding or delimiter")
+            
+            # Clean column names
+            df.columns = df.columns.str.strip()
+            
+            # Fill NaN values with empty strings for better processing
+            df = df.fillna('')
+            
+            logger.info(f"📊 CSV parsed successfully: {len(df)} rows, {len(df.columns)} columns")
+            logger.info(f"📊 Columns: {list(df.columns)}")
+            
+            # Structure the CSV data for optimal chunking and retrieval
+            text_parts = []
+            
+            # 1. Add header information as first chunk
+            header_info = f"[CSV_HEADER] CSV Dataset Information\n"
+            header_info += f"Dataset contains {len(df)} records with {len(df.columns)} columns\n"
+            header_info += f"Columns: {', '.join(df.columns)}\n\n"
+            
+            # 2. Add individual record data - THIS IS THE KEY FIX
+            for idx, (_, row) in enumerate(df.iterrows()):
+                record_text = f"[CSV_RECORD_{idx+1}] Device Record {idx+1}:\n"
+                
+                for col in df.columns:
+                    value = str(row[col]).strip()
+                    if value:  # Only include non-empty values
+                        record_text += f"{col}: {value}\n"
+                    else:
+                        record_text += f"{col}: [EMPTY_FIELD]\n"
+                
+                # Add the record as a complete chunk
+                record_text += f"\nThis is a complete record from the CSV dataset.\n"
+                text_parts.append(record_text)
+            
+            # 3. Add column pattern information for better matching
+            for col in df.columns:
+                col_data = df[col].dropna().astype(str)
+                non_empty_data = col_data[col_data.str.strip() != ''].tolist()
+                
+                if non_empty_data:
+                    col_description = f"[COLUMN_{col.replace(' ', '_').upper()}] Column Information for '{col}':\n"
+                    col_description += f"Sample values: {', '.join(non_empty_data)}\n"
+                    col_description += f"Total entries: {len(non_empty_data)}\n"
+                    col_description += f"Data pattern: {self._detect_csv_column_pattern(non_empty_data)}\n"
+                    col_description += f"All values: {'; '.join(non_empty_data)}\n\n"
+                    text_parts.append(col_description)
+            
+            # Combine all parts
+            full_text = "\n".join(text_parts)
+            
+            logger.info(f"✅ CSV text extraction completed: {len(full_text)} characters generated")
+            return full_text.strip()
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to extract text from CSV: {e}")
+            raise
+    
+    def _detect_csv_column_pattern(self, values: List[str]) -> str:
+        """Detect the data pattern in a CSV column"""
+        if not values:
+            return "empty"
+        
+        # Check for common patterns
+        patterns = {
+            'date': r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
+            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'phone': r'[\+]?[1-9]?[\d\s\-\(\)]{7,15}',
+            'number': r'^\d+(\.\d+)?$',
+            'currency': r'[\$£€¥]?\d+(\.\d{2})?',
+            'percentage': r'\d+(\.\d+)?%',
+            'url': r'https?://[^\s]+',
+            'id_code': r'^[A-Z0-9\-_]+$',
+            'version': r'v?\d+\.\d+(\.\d+)?'
+        }
+        
+        for pattern_name, pattern in patterns.items():
+            matches = sum(1 for v in values if re.search(pattern, str(v), re.IGNORECASE))
+            if matches > len(values) * 0.5:  # More than 50% match
+                return pattern_name
+        
+        # Check for specific content types
+        if any('model' in str(v).lower() for v in values):
+            return 'model_number'
+        elif any('name' in str(v).lower() for v in values):
+            return 'name'
+        elif any('address' in str(v).lower() or 'street' in str(v).lower() for v in values):
+            return 'address'
+        elif any('manufacturer' in str(v).lower() or 'company' in str(v).lower() for v in values):
+            return 'manufacturer'
+        
+        return 'text'
+    
     def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
         """Create optimized overlapping chunks from text with better boundary detection and enhanced coverage"""
         try:
@@ -622,6 +753,10 @@ class DocumentProcessor:
             
             # Clean and prepare text for chunking
             cleaned_text = self._prepare_text_for_chunking(text)
+            
+            # ENHANCED: Detect if this is CSV content and use specialized chunking
+            if self._is_csv_content(cleaned_text):
+                return self._create_csv_aware_chunks(cleaned_text)
             
             chunks = []
             start = 0
@@ -680,9 +815,12 @@ class DocumentProcessor:
                     start, actual_end, cleaned_text, self.chunk_overlap
                 )
                 
-                # Prevent infinite loop
+                # FIXED: Prevent character-by-character sliding window
                 if next_start <= start:
-                    start += 1
+                    # If overlap calculation fails, advance by at least chunk_size - overlap
+                    # This ensures we make meaningful progress
+                    min_advance = max(self.chunk_size - self.chunk_overlap, 200)
+                    next_start = start + min_advance
                 else:
                     start = next_start
                 
@@ -706,6 +844,73 @@ class DocumentProcessor:
             logger.error(f"❌ Failed to create chunks: {e}")
             raise
     
+    def _is_csv_content(self, text: str) -> bool:
+        """Detect if the text content is from a CSV file"""
+        csv_indicators = [
+            "[CSV_HEADER]", "[CSV_RECORD_", "[COLUMN_", 
+            "Dataset contains", "records with", "columns"
+        ]
+        return any(indicator in text for indicator in csv_indicators)
+    
+    def _create_csv_aware_chunks(self, text: str) -> List[Dict[str, Any]]:
+        """Create chunks specifically optimized for CSV content"""
+        logger.info("📊 Using CSV-aware chunking strategy")
+        
+        chunks = []
+        chunk_id = 0
+        
+        # Split text into logical sections
+        sections = text.split("\n\n")
+        
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+                
+            # Determine section type
+            if section.startswith("[CSV_HEADER]"):
+                content_type = "csv_header"
+                importance_score = 0.9
+            elif section.startswith("[CSV_RECORD_"):
+                content_type = "csv_record"
+                importance_score = 1.0
+            elif section.startswith("[COLUMN_"):
+                content_type = "csv_column_info"
+                importance_score = 0.8
+            else:
+                content_type = "csv_general"
+                importance_score = 0.6
+            
+            # Extract metadata for this chunk
+            chunk_metadata = self._extract_chunk_metadata(section)
+            
+            chunks.append({
+                "chunk_id": chunk_id,
+                "content": section,
+                "start_index": 0,  # Not critical for CSV
+                "end_index": len(section),
+                "word_count": len(section.split()),
+                "has_structured_data": True,
+                "contains_fields": ":" in section,
+                "content_type": content_type,
+                "importance_score": importance_score,
+                "semantic_keywords": chunk_metadata.get("semantic_keywords", []),
+                "entity_density": chunk_metadata.get("entity_density", 0.0),
+                "information_richness": importance_score,
+                "chunk_quality_score": importance_score,
+                "coverage_info": {
+                    "chunk_position": f"{chunk_id}/{len(sections)}",
+                    "document_coverage": f"section_{chunk_id}",
+                    "total_length": len(text)
+                }
+            })
+            
+            logger.debug(f"📦 Created CSV chunk {chunk_id}: {len(section)} chars, type: {content_type}")
+            chunk_id += 1
+        
+        logger.info(f"✅ Created {len(chunks)} CSV-aware chunks")
+        return chunks
+
     def _prepare_text_for_chunking(self, text: str) -> str:
         """Prepare text for optimal chunking"""
         try:

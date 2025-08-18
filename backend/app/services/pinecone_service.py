@@ -161,48 +161,61 @@ class PineconeService:
             enhanced_top_k = min(top_k * 3, 50)  # Get more results initially
             
             if self.index:
-                # Use Pinecone if available
-                # Ensure device isolation in filter
-                device_filter = {"device_id": device_id}
-                if filter_metadata:
-                    device_filter.update(filter_metadata)
-                
-                # ENHANCED: Add quality filtering unless explicitly disabled
-                if not include_low_quality:
-                    if "chunk_quality_score" not in device_filter:
-                        device_filter["chunk_quality_score"] = {"$gte": 0.3}  # Minimum quality threshold
-                
-                results = self.index.query(
-                    vector=query_vector,
-                    top_k=enhanced_top_k,
-                    include_metadata=True,
-                    namespace=f"device_{device_id}",
-                    filter=device_filter
-                )
-                
-                search_results = []
-                for match in results.matches:
-                    search_results.append(VectorSearchResult(
-                        content=match.metadata.get('content', ''),
-                        metadata=match.metadata,
-                        score=match.score
-                    ))
-                
-                # ENHANCED: Post-process results for better quality and diversity
-                enhanced_results = self._enhance_search_results(search_results, top_k)
-                return enhanced_results
-                
-            else:
-                # Fallback to local storage with enhanced similarity search
-                vectors = self._load_local_vectors(device_id)
-                
-                if not vectors:
-                    return []
-                
-                # Calculate similarities
-                similarities = []
-                for i, vector in enumerate(vectors):
-                    if 'values' in vector:
+                # Use Pinecone if available and namespace exists
+                # First check if the namespace exists
+                try:
+                    stats = self.index.describe_index_stats()
+                    target_namespace = f"device_{device_id}"
+                    namespace_exists = (stats.namespaces and target_namespace in stats.namespaces)
+                    
+                    if namespace_exists:
+                        # Ensure device isolation in filter
+                        device_filter = {"device_id": device_id}
+                        if filter_metadata:
+                            device_filter.update(filter_metadata)
+                        
+                        # ENHANCED: Add quality filtering unless explicitly disabled
+                        if not include_low_quality:
+                            if "chunk_quality_score" not in device_filter:
+                                device_filter["chunk_quality_score"] = {"$gte": 0.3}  # Minimum quality threshold
+                        
+                        results = self.index.query(
+                            vector=query_vector,
+                            top_k=enhanced_top_k,
+                            include_metadata=True,
+                            namespace=target_namespace,
+                            filter=device_filter
+                        )
+                        
+                        search_results = []
+                        for match in results.matches:
+                            search_results.append(VectorSearchResult(
+                                content=match.metadata.get('content', ''),
+                                metadata=match.metadata,
+                                score=match.score
+                            ))
+                        
+                        # ENHANCED: Post-process results for better quality and diversity
+                        enhanced_results = self._enhance_search_results(search_results, top_k)
+                        return enhanced_results
+                    else:
+                        # Namespace doesn't exist in Pinecone, fall back to local storage
+                        logger.info(f"📂 Namespace {target_namespace} not found in Pinecone, using local storage")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Pinecone query failed: {e}, falling back to local storage")
+            
+            # Fallback to local storage with enhanced similarity search
+            logger.info(f"📂 Using local storage for device {device_id}")
+            vectors = self._load_local_vectors(device_id)
+            
+            if not vectors:
+                return []
+            
+            # Calculate similarities
+            similarities = []
+            for i, vector in enumerate(vectors):
+                if 'values' in vector:
                         similarity = self._cosine_similarity(query_vector, vector['values'])
                         
                         # ENHANCED: Apply quality filtering

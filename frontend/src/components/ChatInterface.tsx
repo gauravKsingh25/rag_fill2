@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { chatApi, ApiError } from '@/lib/api';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -148,36 +149,7 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
     setError(null);
 
     try {
-      // Add timeout to prevent endless waiting
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-      const response = await fetch('http://localhost:8000/api/chat/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          device_id: deviceId,
-          message: inputMessage,
-          conversation_history: messages.slice(-10) // Last 10 messages for context
-        }),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
-      }
-
-      const data = await response.json();
-
-      // Validate response structure
-      if (!data || typeof data.response !== 'string') {
-        throw new Error('Invalid response format from server');
-      }
+      const data = await chatApi.send(deviceId, inputMessage, messages.slice(-10));
 
       const assistantMessage: ChatMessage = {
         role: 'assistant',
@@ -191,12 +163,10 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
       console.error('Chat error:', err);
       let errorMessage = 'Failed to send message';
       
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          errorMessage = 'Request timed out. The system is taking too long to respond. Please try a simpler question or check if documents are uploaded.';
-        } else {
-          errorMessage = err.message;
-        }
+      if (err instanceof ApiError) {
+        errorMessage = err.message;
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
       }
       
       setError(errorMessage);

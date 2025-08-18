@@ -109,6 +109,20 @@ export class ApiError extends Error {
   }
 }
 
+// Helper function to get auth token
+const getAuthToken = (): string | null => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('auth_token');
+  }
+  return null;
+};
+
+// Helper function to get auth headers
+const getAuthHeaders = (): Record<string, string> => {
+  const token = getAuthToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 export const apiRequest = async <T = unknown>(
   url: string,
   options: RequestInit = {}
@@ -117,6 +131,7 @@ export const apiRequest = async <T = unknown>(
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders(),
         ...options.headers,
       },
       ...options,
@@ -205,6 +220,13 @@ export const uploadFile = async <T = UploadResponse>(
     });
 
     xhr.open('POST', url);
+    
+    // Add auth headers for file uploads
+    const token = getAuthToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    
     xhr.send(formData);
   });
 };

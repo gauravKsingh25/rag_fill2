@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { documentApi, ApiError } from '@/lib/api';
 
 interface Document {
   document_id: string;
@@ -29,14 +30,14 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/documents/device/${deviceId}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch documents');
-      }
-      const data = await response.json();
+      const data = await documentApi.listByDevice(deviceId);
       setDocuments(data.documents || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch documents');
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to fetch documents');
+      }
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ['.pdf', '.docx', '.txt', '.md'];
+    const allowedTypes = ['.pdf', '.docx', '.txt', '.md', '.csv'];
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
     
     if (!allowedTypes.includes(fileExtension)) {
@@ -71,21 +72,11 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     setSuccess(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('device_id', deviceId);
-
-      const response = await fetch('http://localhost:8000/api/documents/upload', {
-        method: 'POST',
-        body: formData,
+      const result = await documentApi.upload(file, deviceId, (progress) => {
+        // You can use progress for a progress bar if needed
+        console.log(`Upload progress: ${progress}%`);
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Upload failed');
-      }
-
-      const result = await response.json();
       // Extract chunks created from the message or use 0 as fallback
       const chunksCreated = result.message.match(/Created (\d+) chunks/)?.[1] || '0';
       setSuccess(`Document "${result.filename}" uploaded and processed successfully! Created ${chunksCreated} chunks.`);
@@ -99,7 +90,11 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
       }
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : 'Upload failed');
+      }
     } finally {
       setUploading(false);
     }
@@ -111,18 +106,15 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     }
 
     try {
-      const response = await fetch(`http://localhost:8000/api/documents/${documentId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete document');
-      }
-
+      await documentApi.delete(documentId);
       setSuccess('Document deleted successfully');
       await fetchDocuments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete document');
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to delete document');
+      }
     }
   };
 
@@ -160,7 +152,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Supported formats: PDF, DOCX, TXT, MD (max 10MB)
+              Supported formats: PDF, DOCX, TXT, MD, CSV (max 10MB)
             </p>
           </div>
 

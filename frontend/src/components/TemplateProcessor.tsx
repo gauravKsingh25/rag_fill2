@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { templateApi, csvApi, ApiError } from '@/lib/api';
+import { API_BASE_URL } from '@/config/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface TemplateAnalysis {
   device_id: string;
@@ -14,15 +17,35 @@ interface TemplateAnalysis {
   }>;
 }
 
-interface TemplateProcessorProps {
-  deviceId: string;
+interface CSVAnalysis {
+  device_id: string;
+  csv_filename: string;
+  total_rows: number;
+  total_columns: number;
+  total_empty_cells: number;
+  fillable_cells: number;
+  sample_analysis: Record<string, {
+    can_fill: boolean;
+    confidence: number;
+    sources: number;
+  }>;
+  columns: string[];
 }
 
-export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) {
+import { FileHistoryItem } from './FileHistory';
+
+interface TemplateProcessorProps {
+  deviceId: string;
+  onFileHistoryUpdate?: (item: FileHistoryItem) => void;
+}
+
+export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: TemplateProcessorProps) {
   const [processing, setProcessing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzingCsv, setAnalyzingCsv] = useState(false);
   const [processingCsv, setProcessingCsv] = useState(false);
   const [analysis, setAnalysis] = useState<TemplateAnalysis | null>(null);
+  const [csvAnalysis, setCsvAnalysis] = useState<CSVAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
@@ -36,6 +59,7 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const csvAnalyzeInputRef = useRef<HTMLInputElement>(null);
   const activeIntervalsRef = useRef<NodeJS.Timeout[]>([]);
 
   // Progress simulation during template processing
@@ -149,6 +173,14 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
 
       const result = await response.json();
       setAnalysis(result);
+      if (onFileHistoryUpdate) {
+        onFileHistoryUpdate({
+          filename: result.template_filename,
+          type: 'analyzed',
+          url: '',
+          timestamp: new Date().toISOString(),
+        });
+      }
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
@@ -209,6 +241,14 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
       setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
+      if (onFileHistoryUpdate) {
+        onFileHistoryUpdate({
+          filename: result.template_filename,
+          type: 'filled',
+          url: `http://localhost:8000${result.filled_template_url}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
       
       // Clear file input
       if (processInputRef.current) {
@@ -240,24 +280,32 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
     setCsvDownloadUrl(null);
 
     try {
-      // Simulate CSV processing for demo purposes
-      // In a real implementation, you would send the CSV to your backend
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
 
-      // Simulate processing delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill-csv', {
+        method: 'POST',
+        body: formData,
+      });
 
-      // For demo: simulate a successful response
-      const mockResponse = {
-        filled_csv_url: '/api/csv/download/filled_example.csv',
-        filled_rows: 25,
-        total_rows: 30
-      };
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'CSV processing failed');
+      }
 
-      setCsvSuccess(`CSV processed successfully! Filled ${mockResponse.filled_rows} out of ${mockResponse.total_rows} rows.`);
-      setCsvDownloadUrl(`http://localhost:8000${mockResponse.filled_csv_url}`);
+      const result = await response.json();
+      
+      setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} out of ${result.total_empty_cells} empty cells.`);
+      setCsvDownloadUrl(`http://localhost:8000${result.filled_csv_url}`);
+      if (onFileHistoryUpdate) {
+        onFileHistoryUpdate({
+          filename: result.csv_filename,
+          type: 'filled',
+          url: `http://localhost:8000${result.filled_csv_url}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
       
       // Clear file input
       if (csvInputRef.current) {
@@ -268,6 +316,53 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
       setCsvError(err instanceof Error ? err.message : 'CSV processing failed');
     } finally {
       setProcessingCsv(false);
+    }
+  };
+
+  const handleAnalyzeCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.name.endsWith('.csv')) {
+      setCsvError('Only .csv files are supported');
+      return;
+    }
+
+    setAnalyzingCsv(true);
+    setCsvError(null);
+    setCsvAnalysis(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('device_id', deviceId);
+
+      const response = await fetch('http://localhost:8000/api/templates/analyze-csv', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'CSV analysis failed');
+      }
+
+      const result = await response.json();
+      setCsvAnalysis(result);
+      if (onFileHistoryUpdate) {
+        onFileHistoryUpdate({
+          filename: result.csv_filename,
+          type: 'analyzed',
+          url: '',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      
+    } catch (err) {
+      setCsvError(err instanceof Error ? err.message : 'CSV analysis failed');
+    } finally {
+      setAnalyzingCsv(false);
     }
   };
 
@@ -498,6 +593,84 @@ export default function TemplateProcessor({ deviceId }: TemplateProcessorProps) 
                   <span>{progress >= 95 ? '✓' : '○'}</span>
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CSV Analysis Section */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Analyze CSV
+        </h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Upload a CSV file to see which empty cells can be filled with the available documents for Device {deviceId}.
+        </p>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select CSV File to Analyze
+            </label>
+            <input
+              ref={csvAnalyzeInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleAnalyzeCsv}
+              disabled={analyzingCsv}
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              This will analyze your CSV structure and show which empty cells can be filled
+            </p>
+          </div>
+
+          {analyzingCsv && (
+            <div className="flex items-center space-x-2 text-indigo-600">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+              <span className="text-sm">Analyzing CSV file...</span>
+            </div>
+          )}
+
+          {csvError && !csvAnalysis && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="text-red-700 text-sm">{csvError}</div>
+            </div>
+          )}
+
+          {csvAnalysis && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-md">
+              <h4 className="font-medium text-indigo-900 mb-2">CSV Analysis Results</h4>
+              <div className="text-sm text-indigo-800 space-y-1">
+                <p><strong>File:</strong> {csvAnalysis.csv_filename}</p>
+                <p><strong>Structure:</strong> {csvAnalysis.total_rows} rows × {csvAnalysis.total_columns} columns</p>
+                <p><strong>Empty Cells:</strong> {csvAnalysis.total_empty_cells} total</p>
+                <p><strong>Fillable:</strong> {csvAnalysis.fillable_cells} cells can be filled with available documents</p>
+                <p><strong>Columns:</strong> {csvAnalysis.columns.join(', ')}</p>
+              </div>
+              
+              {Object.keys(csvAnalysis.sample_analysis).length > 0 && (
+                <div className="mt-3">
+                  <h5 className="font-medium text-indigo-900 mb-2">Sample Cell Analysis:</h5>
+                  <div className="space-y-1">
+                    {Object.entries(csvAnalysis.sample_analysis).map(([cellKey, details]) => (
+                      <div key={cellKey} className="text-xs text-indigo-700 flex justify-between">
+                        <span>{cellKey}:</span>
+                        <span>
+                          {details.can_fill ? (
+                            <span>
+                              Confidence: {typeof details.confidence === 'number' && !isNaN(details.confidence) ? (details.confidence * 100).toFixed(1) : 'N/A'}% 
+                              ({details.sources || 0} sources)
+                            </span>
+                          ) : (
+                            <span>No matching content found</span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
