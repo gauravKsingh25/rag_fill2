@@ -11,17 +11,14 @@ logger = logging.getLogger(__name__)
 # - GCS_BUCKET
 # - GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON)
 
-GCS_BUCKET = os.getenv("GCS_BUCKET") or "rag-fill-file-history"
+GCS_BUCKET = os.getenv("GCS_BUCKET")
+if not GCS_BUCKET or not GCS_BUCKET.strip():
+    logger.error("GCS_BUCKET environment variable is not set or blank. GCS integration will not work.")
+    raise RuntimeError("GCS_BUCKET environment variable is required and must not be blank.")
 
-# If GOOGLE_APPLICATION_CREDENTIALS is not set, prefer a default key placed in backend root
-try:
-    BACKEND_ROOT = Path(__file__).resolve().parents[2]
-    DEFAULT_KEY = BACKEND_ROOT / "rag-fill-py-6607bea9063c.json"
-    if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and DEFAULT_KEY.exists():
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(DEFAULT_KEY)
-        logging.getLogger(__name__).info(f"Using default GCS key at {DEFAULT_KEY}")
-except Exception:
-    DEFAULT_KEY = None
+# Ensure GOOGLE_APPLICATION_CREDENTIALS is set via environment variable only
+if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    logger.warning("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set. GCS client may not work.")
 
 _client: Optional[storage.Client] = None
 _bucket: Optional[storage.Bucket] = None

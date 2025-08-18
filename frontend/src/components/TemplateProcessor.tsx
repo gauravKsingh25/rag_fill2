@@ -142,6 +142,25 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     };
   }, [processing, startTime]);
 
+  // Helper to upload file to GCS via file-history API
+  async function uploadFileToGCS(file: File, type: string, timestamp?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    formData.append('timestamp', timestamp || new Date().toISOString());
+    try {
+      const response = await fetch('http://localhost:8000/api/file-history/', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) throw new Error('GCS upload failed');
+      return await response.json();
+    } catch (err) {
+      // Silent fail, don't block main flow
+      return null;
+    }
+  }
+
   const handleAnalyzeTemplate = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -181,6 +200,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           timestamp: new Date().toISOString(),
         });
       }
+      // Upload analyzed template to GCS for file history
+      await uploadFileToGCS(file, 'analyzed', new Date().toISOString());
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
@@ -249,6 +270,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           timestamp: new Date().toISOString(),
         });
       }
+      // Upload processed template to GCS for file history
+      await uploadFileToGCS(file, 'filled', new Date().toISOString());
       
       // Clear file input
       if (processInputRef.current) {
@@ -306,6 +329,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           timestamp: new Date().toISOString(),
         });
       }
+      // Upload processed CSV to GCS for file history
+      await uploadFileToGCS(file, 'filled', new Date().toISOString());
       
       // Clear file input
       if (csvInputRef.current) {
@@ -358,6 +383,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           timestamp: new Date().toISOString(),
         });
       }
+      // Upload analyzed CSV to GCS for file history
+      await uploadFileToGCS(file, 'analyzed', new Date().toISOString());
       
     } catch (err) {
       setCsvError(err instanceof Error ? err.message : 'CSV analysis failed');
