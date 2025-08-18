@@ -63,70 +63,59 @@ async def add_history_item(
 			# Build destination name with timestamp
 			dest_name = f"{int(datetime.utcnow().timestamp())}_{file.filename}"
 			if gcs_service.is_available():
+				logger.info(f"Starting upload for file: {file.filename} as {dest_name}")
+				upload_start = datetime.utcnow()
 				# Upload to GCS
 				# attempt to determine file size (UploadFile.file may have .seek)
 				try:
-					logger.info(f"Starting upload for file: {file.filename} as {dest_name}")
-					upload_start = datetime.utcnow()
-					try:
-						record = {}
-						if file is not None:
-							# Build destination name with timestamp
-							dest_name = f"{int(datetime.utcnow().timestamp())}_{file.filename}"
-							if gcs_service.is_available():
-								logger.info(f"Starting upload for file: {file.filename} as {dest_name}")
-								upload_start = datetime.utcnow()
-								# Upload to GCS
-								# attempt to determine file size (UploadFile.file may have .seek)
-								try:
-									pos = file.file.tell()
-									file.file.seek(0, 2)
-									size = file.file.tell()
-									file.file.seek(pos)
-								except Exception:
-									size = None
+					pos = file.file.tell()
+					file.file.seek(0, 2)
+					size = file.file.tell()
+					file.file.seek(pos)
+				except Exception:
+					size = None
 
-								logger.info(f"File size determined: {size} bytes")
-								try:
-									gcs_service.upload_fileobj(file.file, dest_name, content_type=file.content_type)
-								except Exception as upload_err:
-									logger.error(f"Error during file upload to GCS: {upload_err}")
-									raise HTTPException(status_code=500, detail="File upload failed")
-								upload_end = datetime.utcnow()
-								logger.info(f"File upload completed for {dest_name} in {(upload_end-upload_start).total_seconds()} seconds")
+				logger.info(f"File size determined: {size} bytes")
+				try:
+					gcs_service.upload_fileobj(file.file, dest_name, content_type=file.content_type)
+				except Exception as upload_err:
+					logger.error(f"Error during file upload to GCS: {upload_err}")
+					raise HTTPException(status_code=500, detail="File upload failed")
+				upload_end = datetime.utcnow()
+				logger.info(f"File upload completed for {dest_name} in {(upload_end-upload_start).total_seconds()} seconds")
 
-								url_start = datetime.utcnow()
-								# Generate a signed url for download
-								url = gcs_service.generate_signed_url(dest_name, expires_seconds=3600*24*7)
-								url_end = datetime.utcnow()
-								logger.info(f"Signed URL generated for {dest_name} in {(url_end-url_start).total_seconds()} seconds: {url}")
-							else:
-								# If GCS not available, we do not save the file (per user's request to avoid local storage)
-								raise HTTPException(status_code=503, detail="Storage backend not configured")
+				url_start = datetime.utcnow()
+				# Generate a signed url for download
+				url = gcs_service.generate_signed_url(dest_name, expires_seconds=3600*24*7)
+				url_end = datetime.utcnow()
+				logger.info(f"Signed URL generated for {dest_name} in {(url_end-url_start).total_seconds()} seconds: {url}")
+			else:
+				# If GCS not available, we do not save the file (per user's request to avoid local storage)
+				raise HTTPException(status_code=503, detail="Storage backend not configured")
 
-							record["filename"] = file.filename
-							record["url"] = url
-							record["type"] = type
-							record["timestamp"] = timestamp or datetime.utcnow().isoformat() + "Z"
-							record["content_type"] = file.content_type
-							record["size_bytes"] = size if size is not None else None
-						else:
-							# metadata-only record (no file uploaded)
-							if not filename:
-								raise HTTPException(status_code=400, detail="filename is required when not uploading a file")
-							record = {"filename": filename, "type": type, "url": "", "timestamp": timestamp or datetime.utcnow().isoformat() + "Z"}
+			record["filename"] = file.filename
+			record["url"] = url
+			record["type"] = type
+			record["timestamp"] = timestamp or datetime.utcnow().isoformat() + "Z"
+			record["content_type"] = file.content_type
+			record["size_bytes"] = size if size is not None else None
+		else:
+			# metadata-only record (no file uploaded)
+			if not filename:
+				raise HTTPException(status_code=400, detail="filename is required when not uploading a file")
+			record = {"filename": filename, "type": type, "url": "", "timestamp": timestamp or datetime.utcnow().isoformat() + "Z"}
 
-						# Persist index to GCS only
-						index_start = datetime.utcnow()
-						items = await _load_index_from_gcs()
-						items.insert(0, record)
-						await _save_index_to_gcs(items)
-						index_end = datetime.utcnow()
-						logger.info(f"Index updated and saved to GCS in {(index_end-index_start).total_seconds()} seconds. Total items: {len(items)}")
-						return record
+		# Persist index to GCS only
+		index_start = datetime.utcnow()
+		items = await _load_index_from_gcs()
+		items.insert(0, record)
+		await _save_index_to_gcs(items)
+		index_end = datetime.utcnow()
+		logger.info(f"Index updated and saved to GCS in {(index_end-index_start).total_seconds()} seconds. Total items: {len(items)}")
+		return record
 
-					except HTTPException:
-						raise
-					except Exception as e:
-						logger.error(f"Failed to add history item: {e}")
-						raise HTTPException(status_code=500, detail="Failed to add history item")
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"Failed to add history item: {e}")
+		raise HTTPException(status_code=500, detail="Failed to add history item")
