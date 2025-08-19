@@ -33,7 +33,6 @@ export default function FavoritesSidebar() {
     loadFavorites();
   }, []);
 
-  // Always use a single default type for favorites uploads
   const DEFAULT_FAVORITE_TYPE = 'filled';
 
   async function uploadFavorite(file: File /*, type omitted - use default */) {
@@ -71,15 +70,12 @@ export default function FavoritesSidebar() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border p-4">
-      <h3 className="text-lg font-semibold mb-3">Favorites</h3>
+    <div className="card p-4">
+      <h3 className="text-lg font-semibold mb-1 text-gray-900">Favorites</h3>
+      <div className="text-xs text-muted mb-3">Quick access to uploaded templates and filled files</div>
 
       <div className="mb-3 flex gap-2 items-center">
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 disabled:opacity-50"
-        >
+        <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-primary text-sm">
           {uploading ? 'Uploading...' : 'Add File'}
         </button>
         <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.csv" onChange={onFileChange} className="hidden" />
@@ -88,25 +84,31 @@ export default function FavoritesSidebar() {
       {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
 
       {loading ? (
-        <div className="text-sm text-gray-500">Loading favorites...</div>
+        <div className="text-sm text-muted">Loading favorites...</div>
       ) : favorites.length === 0 ? (
-        <div className="text-sm text-gray-400">No favorites yet.</div>
+        <div className="text-sm text-muted">No favorites yet. Add a file to get started.</div>
       ) : (
         <div className="space-y-2">
-          {favorites.map(f => (
-            <div key={(f.timestamp || '') + f.filename} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-              <div className="text-sm">
-                <div className="font-medium">{f.filename}</div>
-                <div className="text-xs text-gray-500">{new Date(f.timestamp).toLocaleString()}</div>
+          {favorites.map(f => {
+            const localUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/local_storage/favorites_uploads/${encodeURIComponent(f.filename)}`;
+            const href = f.url && f.url !== '' ? (f.url.startsWith('http') ? f.url : `${API_BASE}${f.url}`) : localUrl;
+            return (
+              <div key={(f.timestamp || '') + f.filename} className="file-item">
+                <div className="meta">
+                  <div className="filename">{f.filename}</div>
+                  <div className="sub">{new Date(f.timestamp).toLocaleString()}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`badge ${f.type === 'filled' ? 'filled' : 'analyzed'}`}>{f.type === 'filled' ? 'Filled' : 'Analyzed'}</span>
+                  <a href={href} download className="download-btn" title={`Download ${f.filename}`}>
+                    <FiDownload className="h-4 w-4" />
+                  </a>
+                </div>
               </div>
-              <a href={f.url || '#'} download={!!f.url} className="text-blue-600 hover:text-blue-800 p-2">
-                <FiDownload className="h-4 w-4" />
-              </a>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
-         

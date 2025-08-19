@@ -15,13 +15,9 @@ interface FileHistoryProps {
 }
 
 export default function FileHistory({ history }: FileHistoryProps) {
-  // filter UI removed — show full history list
   const [remoteHistory, setRemoteHistory] = useState<FileHistoryItem[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // upload moved to the Favorites sidebar
-
-  // Use NEXT_PUBLIC_API_BASE for correct backend endpoint
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
   const [apiBaseError, setApiBaseError] = useState<string | null>(null);
 
@@ -52,45 +48,57 @@ export default function FileHistory({ history }: FileHistoryProps) {
   const combinedHistory = remoteHistory ?? history;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border p-6 min-w-[340px]">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-        File History
-      </h3>
+    <div className="card p-6 file-history-card w-full">
+      <div className="file-history-header mb-4">
+        <div>
+          <div className="text-lg font-semibold text-gray-900">File History</div>
+          <div className="text-xs text-muted">Recent analyzed &amp; filled files · {combinedHistory?.length ?? 0}</div>
+        </div>
+      </div>
       {apiBaseError ? (
         <div className="text-red-600 text-sm text-center py-8">{apiBaseError}</div>
       ) : (
         <>
-          {/* Upload control removed from File History — use Favorites sidebar to add files */}
           <div className="space-y-3">
             {loading ? (
-              <div className="text-blue-400 text-sm text-center py-8">
-                Loading file history...
-              </div>
-            ) : combinedHistory.length === 0 ? (
-              <div className="text-gray-400 text-sm text-center py-8">
-                No file history yet.
+              <div className="text-blue-400 text-sm text-center py-8">Loading file history...</div>
+            ) : !combinedHistory || combinedHistory.length === 0 ? (
+              <div className="file-empty text-gray-400 text-sm text-center py-8">
+                No file history yet. Use the Upload or Template tools to generate history items.
               </div>
             ) : (
-              combinedHistory.map(item => (
-                <div key={item.url} className="flex items-center justify-between bg-gray-50 rounded p-3 border border-gray-100">
-                  <div>
-                    <div className="font-medium text-gray-900 text-sm">{item.filename}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(item.timestamp).toLocaleString()}
-                      {item.size_bytes ? ` · ${Math.round(item.size_bytes / 1024)} KB` : ''}
-                      {item.content_type ? ` · ${item.content_type}` : ''}
+              combinedHistory.map(item => {
+                const key = `${item.filename || 'file'}_${item.timestamp || ''}`;
+                const sizeKb = item.size_bytes ? `${Math.round((item.size_bytes || 0) / 1024)} KB` : null;
+                const displayTime = item.timestamp ? new Date(item.timestamp).toLocaleString() : 'Unknown';
+                return (
+                  <div key={key} className="file-item">
+                    <div className="meta">
+                      <div className="filename truncate" title={item.filename}>{item.filename}</div>
+                      <div className="sub">
+                        {displayTime}
+                        {sizeKb ? ` · ${sizeKb}` : ''}
+                        {item.content_type ? ` · ${item.content_type}` : ''}
+                      </div>
+                    </div>
+
+                    <div className="actions flex items-center gap-3">
+                      <div className={`badge ${item.type === 'filled' ? 'filled' : 'analyzed'}`}>
+                        {item.type === 'filled' ? 'Filled' : 'Analyzed'}
+                      </div>
+                      {item.url ? (
+                        <a href={item.url} download className="download-btn" title={`Download ${item.filename}`}>
+                          <FiDownload className="h-4 w-4" />
+                        </a>
+                      ) : (
+                        <button disabled className="download-btn opacity-40" title="No file URL available">
+                          <FiDownload className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <a
-                    href={item.url}
-                    download
-                    className="ml-2 text-blue-600 hover:text-blue-800 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    title={`Download ${item.filename}`}
-                  >
-                    <FiDownload className="h-5 w-5" />
-                  </a>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </>
@@ -98,4 +106,3 @@ export default function FileHistory({ history }: FileHistoryProps) {
     </div>
   );
 }
-         

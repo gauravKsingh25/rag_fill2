@@ -192,17 +192,14 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border h-[600px] flex flex-col">
-      {/* Chat Header */}
+    <div className="card h-[600px] flex flex-col">
       <div className="border-b px-6 py-4">
         <h3 className="text-lg font-semibold text-gray-900">
-          Chat with Device {deviceId} 
+          Chat with Device {deviceId}
         </h3>
-       
-        
+        <div className="text-sm text-muted mt-1">Ask specific questions about documents for best results.</div>
       </div>
 
-      {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.length === 0 ? (
           <div className="text-center py-8">
@@ -212,37 +209,36 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
               </svg>
             </div>
             <p className="text-gray-600">Start a conversation by asking specific, fact-based questions about your documents</p>
-            <div className="mt-4 text-sm text-gray-500">
-              <p className="font-semibold mb-2">💡 Tips for Best Results:</p>
-              <ul className="space-y-1">
-                <li>• Ask specific questions: &quot;What is the model number?&quot; instead of &quot;Tell me about the device&quot;</li>
-                <li>• Use clear, direct questions for better results</li>
-                <li>• System will explicitly state when information is not available</li>
-                <li>• Responses are based on your uploaded documents</li>
+            <div className="mt-4 text-sm text-muted">
+              <p className="font-semibold mb-2">💡 Tips:</p>
+              <ul className="space-y-1 text-left inline-block">
+                <li>• Ask specific questions: "What is the model number?"</li>
+                <li>• Use clear, direct phrasing</li>
+                <li>• System will state when info is not available</li>
               </ul>
             </div>
           </div>
         ) : (
           messages.map((message, index) => (
             <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
+              <div className={`max-w-[72%] rounded-lg px-4 py-2 ${
                 message.role === 'user' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-100 text-gray-900'
-              }`}>
-                <div className="whitespace-pre-wrap">
+                  ? 'bg-[var(--primary)] text-white' 
+                  : 'bg-gray-50 text-gray-900 border border-[var(--border)]'
+              } shadow-sm`}>
+                <div className="whitespace-pre-wrap text-sm">
                   {message.role === 'assistant' ? renderFormattedText(message.content) : message.content}
                 </div>
                 {message.sources && message.sources.length > 0 && (
                   <div className="mt-2 text-xs">
                     <div className="font-semibold mb-1">Sources ({message.sources.length}):</div>
                     {message.sources.map((source, idx) => (
-                      <div key={idx} className="bg-white bg-opacity-20 rounded p-2 mb-1">
-                        <div className="font-medium">
+                      <div key={idx} className="bg-white rounded p-2 mb-1 border border-[var(--border)]">
+                        <div className="font-medium text-sm">
                           {source.document_number ? `[Doc ${source.document_number}] ` : ''}{source.filename || 'Unknown file'}
                         </div>
-                        <div className="opacity-75 mb-1">{source.content_preview || 'No preview available'}</div>
-                        <div className="opacity-50 flex space-x-3">
+                        <div className="opacity-75 mb-1 text-xs">{source.content_preview || 'No preview available'}</div>
+                        <div className="opacity-60 flex space-x-3 text-xs">
                           <span>Score: {typeof source.score === 'number' && !isNaN(source.score) ? source.score.toFixed(3) : 'N/A'}</span>
                           {source.confidence_level && <span>Confidence: {source.confidence_level}</span>}
                           {typeof source.chunk_id === 'number' && <span>Chunk: {source.chunk_id}</span>}
@@ -251,29 +247,28 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
                     ))}
                   </div>
                 )}
-                <div className="text-xs opacity-75 mt-1">
+                <div className="text-xs opacity-60 mt-1 text-right">
                   {new Date(message.timestamp).toLocaleTimeString()}
                 </div>
               </div>
             </div>
           ))
         )}
-        
+
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg px-4 py-2 max-w-[70%]">
-              <div className="flex items-center space-x-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+            <div className="bg-gray-50 rounded-lg px-4 py-2 max-w-[70%] shadow-sm">
+              <div className="flex items-center space-x-2 text-sm text-muted">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
                 <span>Thinking...</span>
               </div>
             </div>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error Display */}
       {error && (
         <div className="border-t bg-red-50 px-6 py-3">
           <div className="text-red-700 text-sm">
@@ -282,7 +277,6 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
         </div>
       )}
 
-      {/* Input Area */}
       <div className="border-t p-4">
         <div className="flex space-x-4">
           <textarea
@@ -291,13 +285,13 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
             onKeyPress={handleKeyPress}
             placeholder="Type your message here..."
             rows={2}
-            className="flex-1 resize-none border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 resize-none border border-[var(--border)] rounded px-3 py-2 focus:outline-none"
             disabled={loading}
           />
           <button
             onClick={sendMessage}
             disabled={!inputMessage.trim() || loading}
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             Send
           </button>
@@ -306,3 +300,4 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
     </div>
   );
 }
+     

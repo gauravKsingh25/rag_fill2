@@ -23,6 +23,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocuments = useCallback(async () => {
@@ -50,6 +51,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setSelectedFileName(file.name);
 
     // Validate file type
     const allowedTypes = ['.pdf', '.docx', '.txt', '.md', '.csv'];
@@ -87,6 +89,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
       // Clear file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+        setSelectedFileName(null);
       }
       
     } catch (err) {
@@ -133,7 +136,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
   return (
     <div className="space-y-6">
       {/* Upload Section */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="card p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
           Upload Documents to Device {deviceId}
         </h3>
@@ -141,20 +144,40 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Document
-            </label>
+               Select Document
+             </label>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.docx,.txt,.md"
+              accept=".pdf,.docx,.txt,.md,.csv"
               onChange={handleFileUpload}
               disabled={uploading}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+              className="hidden"
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Supported formats: PDF, DOCX, TXT, MD, CSV (max 10MB)
-            </p>
-          </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="btn-primary"
+              >
+                {uploading ? 'Uploading...' : 'Choose file'}
+              </button>
+               <div className="text-sm text-gray-600">
+                 {selectedFileName ? <span className="font-medium">{selectedFileName}</span> : <span className="italic text-gray-400">No file selected</span>}
+               </div>
+              {selectedFileName && (
+                <button
+                  onClick={() => { if (fileInputRef.current) fileInputRef.current.value = ''; setSelectedFileName(null); }}
+                  className="text-sm text-red-500 hover:underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Supported formats: PDF, DOCX, TXT, MD, CSV (max 10MB)
+              </p>
+            </div>
 
           {uploading && (
             <div className="flex items-center space-x-2 text-blue-600">
@@ -178,7 +201,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
       </div>
 
       {/* Documents List */}
-      <div className="bg-white rounded-lg shadow-sm border">
+      <div className="card">
         <div className="px-6 py-4 border-b">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold text-gray-900">
@@ -187,7 +210,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
             <button
               onClick={fetchDocuments}
               disabled={loading}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md disabled:opacity-50"
+              className="btn-ghost"
             >
               {loading ? 'Loading...' : 'Refresh'}
             </button>
@@ -234,7 +257,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
                     </span>
                     <button
                       onClick={() => handleDeleteDocument(doc.document_id)}
-                      className="text-red-600 hover:text-red-800 text-sm"
+                      className="text-sm text-red-600 hover:text-red-800 btn-ghost"
                     >
                       Delete
                     </button>

@@ -43,38 +43,11 @@ export default function Home() {
         ) : (
           <div className="space-y-6">
             {/* Tab Navigation */}
-            <div className="border-b border-gray-200">
-              <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'chat'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Chat Interface
-                </button>
-                <button
-                  onClick={() => setActiveTab('upload')}
-                  className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'upload'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Document Upload
-                </button>
-                <button
-                  onClick={() => setActiveTab('template')}
-                  className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'template'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Template Processor
-                </button>
+            <div className="tab-nav" role="tablist" aria-label="Main tabs">
+              <nav className="flex items-center w-full">
+                <button onClick={() => setActiveTab('chat')} className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}>Chat Interface</button>
+                <button onClick={() => setActiveTab('upload')} className={`tab-btn ${activeTab === 'upload' ? 'active' : ''}`}>Document Upload</button>
+                <button onClick={() => setActiveTab('template')} className={`tab-btn ${activeTab === 'template' ? 'active' : ''}`}>Template Processor</button>
               </nav>
             </div>
 
@@ -96,3 +69,4 @@ export default function Home() {
     </div>
   );
 }
+                
