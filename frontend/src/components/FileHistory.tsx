@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FiDownload } from 'react-icons/fi';
+import { API_BASE_URL } from '@/config/api';
 
 export interface FileHistoryItem {
   filename: string;
@@ -18,7 +19,7 @@ export default function FileHistory({ history }: FileHistoryProps) {
   const [remoteHistory, setRemoteHistory] = useState<FileHistoryItem[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
+  const API_BASE = API_BASE_URL || 'https://rag-fill2-1.onrender.com';
   const [apiBaseError, setApiBaseError] = useState<string | null>(null);
 
   useEffect(() => {

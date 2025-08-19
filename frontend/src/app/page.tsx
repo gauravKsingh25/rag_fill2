@@ -99,21 +99,21 @@ export default function Home() {
 							<nav className="flex items-center w-full">
 								<button
 									onClick={() => setActiveTab('chat')}
-									className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+									className={`${tabBtnBase} ${activeTab === 'chat' ? tabBtnActive : tabBtnInactive}`}
 								>
 									Chat Interface
 								</button>
 
 								<button
 									onClick={() => setActiveTab('upload')}
-									className={`tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
+									className={`${tabBtnBase} ${activeTab === 'upload' ? tabBtnActive : tabBtnInactive}`}
 								>
 									Document Upload
 								</button>
 
 								<button
 									onClick={() => setActiveTab('template')}
-									className={`tab-btn ${activeTab === 'template' ? 'active' : ''}`}
+									className={`${tabBtnBase} ${activeTab === 'template' ? tabBtnActive : tabBtnInactive}`}
 								>
 									Template Processor
 								</button>
@@ -123,7 +123,7 @@ export default function Home() {
 
 								<button
 									onClick={() => setActiveTab('history')}
-									className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
+									className={`${tabBtnBase} ${activeTab === 'history' ? tabBtnActive : tabBtnInactive}`}
 								>
 									File History
 								</button>

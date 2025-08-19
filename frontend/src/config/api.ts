@@ -1,20 +1,39 @@
 // API Configuration
 // This file centralizes API configuration to avoid hardcoded URLs
 
-// Determine the API base URL based on environment
+// Determine the API base URL based on environment and runtime overrides
 const getApiBaseUrl = (): string => {
-  // Check if we're in development mode
-  if (process.env.NODE_ENV === 'development') {
-    // Use environment variable if set, otherwise default to localhost
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  // 1) Runtime override (set on globalThis if needed)
+  const runtimeOverride = (globalThis as any).__NEXT_PUBLIC_BACKEND_BASE_URL;
+  if (typeof runtimeOverride === 'string' && runtimeOverride.trim() !== '') {
+    return runtimeOverride.replace(/\/$/, '');
   }
-  
-  // Production API URL (you can set this via environment variable)
-  return process.env.NEXT_PUBLIC_API_URL || 'https://rag-fill2-1.onrender.com';
+
+  // 2) Build-time env var (NEXT_PUBLIC_ is exposed to client builds)
+  const envUrl = process.env.NEXT_PUBLIC_BACKEND_BASE_URL;
+  if (envUrl && envUrl.trim() !== '') return envUrl.replace(/\/$/, '');
+
+  // 3) If running in the browser, prefer current origin in production (useful when backend is same host or proxied)
+  if (typeof window !== 'undefined') {
+    if (process.env.NODE_ENV === 'development') {
+      return 'http://localhost:8000';
+    }
+    return window.location.origin;
+  }
+
+  // 4) Server-side fallback
+  if (process.env.NODE_ENV === 'development') {
+    return 'http://localhost:8000';
+  }
+  return 'https://rag-fill2-1.onrender.com';
 };
 
+// Compute base once and also write it to globalThis so other runtime code can read/override it
+const RUNTIME_API_BASE = getApiBaseUrl();
+(globalThis as any).__NEXT_PUBLIC_BACKEND_BASE_URL = RUNTIME_API_BASE;
+
 export const API_CONFIG = {
-  BASE_URL: getApiBaseUrl(),
+  BASE_URL: RUNTIME_API_BASE,
   ENDPOINTS: {
     DEVICES: '/api/devices',
     DOCUMENTS: '/api/documents',
@@ -31,3 +50,8 @@ export const buildApiUrl = (endpoint: string): string => {
 
 // Export for backward compatibility
 export const API_BASE_URL = API_CONFIG.BASE_URL;
+
+// Export device vectors URL from env if present (use exact env var name), else fall back to BASE_URL
+export const DEVICE_VECTORS_URL =
+  (process.env.NEXT_PUBLIC_DEVICE_VECTORS_URL && process.env.NEXT_PUBLIC_DEVICE_VECTORS_URL.replace(/\/$/, ''))
+  || `${API_CONFIG.BASE_URL}/api/device-vectors`;

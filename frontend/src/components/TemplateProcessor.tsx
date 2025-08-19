@@ -70,8 +70,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const [sourceModalUseCase, setSourceModalUseCase] = useState<'analyze-template'|'process-template'|'analyze-csv'|'process-csv' | null>(null);
   const [sourceModalView, setSourceModalView] = useState<'choose'|'favorites'|'device'>('choose');
 
-  // Backend base used to resolve API download URLs (use env or fallback)
-  const BACKEND_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000').replace(/\/$/, '');
+  // Backend base used to resolve API download URLs (use API_BASE_URL from config)
+  const BACKEND_BASE = (API_BASE_URL || 'https://rag-fill2-1.onrender.com').replace(/\/$/, '');
 
   // new: track favorite processing to keep modal open and disable actions while using a fav
   const [favProcessing, setFavProcessing] = useState(false);
@@ -164,7 +164,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     formData.append('type', type);
     formData.append('timestamp', timestamp || new Date().toISOString());
     try {
-      const response = await fetch('http://localhost:8000/api/favorites/', {
+      const response = await fetch(`${BACKEND_BASE}/api/favorites/`, {
         method: 'POST',
         body: formData,
       });
@@ -179,7 +179,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   // Minimal helper to POST favorite metadata or file to backend (no local UI state here)
   async function postFavorite(formData: FormData) {
     try {
-      await fetch('http://localhost:8000/api/favorites/', {
+      await fetch(`${BACKEND_BASE}/api/favorites/`, {
         method: 'POST',
         body: formData,
       });
@@ -211,7 +211,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   async function fetchFavorites() {
     setFavLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/favorites/');
+      const res = await fetch(`${BACKEND_BASE}/api/favorites/`);
       if (!res.ok) throw new Error('Failed to load favorites');
       const items = await res.json();
       setFavorites(items);
@@ -242,7 +242,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
-      const response = await fetch('http://localhost:8000/api/templates/analyze', { method: 'POST', body: formData });
+      const response = await fetch(`${BACKEND_BASE}/api/templates/analyze`, { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Analysis failed');
@@ -280,7 +280,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       formData.append('device_id', deviceId);
       setProgress(5);
       setProgressStage('Uploading template...');
-      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', { method: 'POST', body: formData });
+      const response = await fetch(`${BACKEND_BASE}/api/templates/upload-and-fill`, { method: 'POST', body: formData });
       setProgress(15);
       setProgressStage('Template uploaded, analyzing...');
       if (!response.ok) {
@@ -291,12 +291,12 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       setProgress(100);
       setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
-      setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
+      setDownloadUrl(`${BACKEND_BASE}${result.filled_template_url}`);
       if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
+        onFileHistoryUpdate({ filename: result.template_filename, type: 'filled', url: `${BACKEND_BASE}${result.filled_template_url}`, timestamp: new Date().toISOString() });
       }
       await uploadFileToGCS(file, 'filled', new Date().toISOString());
-      await addFavoriteFromFile_noUI(file, 'filled', `http://localhost:8000${result.filled_template_url}`);
+      await addFavoriteFromFile_noUI(file, 'filled', `${BACKEND_BASE}${result.filled_template_url}`);
       if (processInputRef.current) processInputRef.current.value = '';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed');
@@ -320,7 +320,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
-      const response = await fetch('http://localhost:8000/api/templates/analyze-csv', { method: 'POST', body: formData });
+      const response = await fetch(`${BACKEND_BASE}/api/templates/analyze-csv`, { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'CSV analysis failed');
@@ -353,16 +353,16 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
-      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill-csv', { method: 'POST', body: formData });
+      const response = await fetch(`${BACKEND_BASE}/api/templates/upload-and-fill-csv`, { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'CSV processing failed');
       }
       const result = await response.json();
       setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} out of ${result.total_empty_cells} empty cells.`);
-      setCsvDownloadUrl(`http://localhost:8000${result.filled_csv_url}`);
+      setCsvDownloadUrl(`${BACKEND_BASE}${result.filled_csv_url}`);
       if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.csv_filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
+        onFileHistoryUpdate({ filename: result.csv_filename, type: 'filled', url: `${BACKEND_BASE}${result.filled_csv_url}`, timestamp: new Date().toISOString() });
       }
       await uploadFileToGCS(file, 'filled', new Date().toISOString());
       if (csvInputRef.current) csvInputRef.current.value = '';
@@ -559,7 +559,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
             <input ref={fileInputRef} type="file" accept=".docx" onChange={handleAnalyzeTemplate} disabled={analyzing} className="hidden" />
             <label className="block text-sm font-medium text-gray-700 mb-2">Select Template to Analyze</label>
             <div className="flex gap-2">
-              <button onClick={() => openSourceModal('analyze-template')} disabled={analyzing} className={ghostBtn}>
+              <button onClick={() => fileInputRef.current?.click()} disabled={analyzing} className={ghostBtn}>
                 {analyzing ? 'Analyzing...' : 'Select File'}
               </button>
               <span className="text-xs text-gray-500 self-center">Only .docx files supported</span>
@@ -632,7 +632,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
                 <input ref={processInputRef} type="file" accept=".docx" onChange={handleProcessTemplate} disabled={processing} className="hidden" />
                 <label className="block text-sm font-medium text-gray-700 mb-2">Select Template to Process</label>
                 <div className="flex gap-2">
-                  <button onClick={() => openSourceModal('process-template')} disabled={processing} className={primaryBtn}>
+                  <button onClick={() => processInputRef.current?.click()} disabled={processing} className={primaryBtn}>
                     {processing ? 'Processing...' : 'Select File'}
                   </button>
                   <p className="text-xs text-gray-500 self-center">The template will be filled automatically</p>
@@ -711,7 +711,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
               Select CSV File to Analyze
             </label>
             <div className="flex gap-2">
-              <button onClick={() => openSourceModal('analyze-csv')} disabled={analyzingCsv} className={primaryBtn}>
+              <button onClick={() => csvAnalyzeInputRef.current?.click()} disabled={analyzingCsv} className={primaryBtn}>
                 {analyzingCsv ? 'Analyzing...' : 'Select File'}
               </button>
               <p className="text-xs text-gray-500 self-center">This will analyze your CSV structure and show which empty cells can be filled</p>
@@ -737,7 +737,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
               Select CSV File to Process
             </label>
             <div className="flex gap-2">
-              <button onClick={() => openSourceModal('process-csv')} disabled={processingCsv} className={primaryBtn}>
+              <button onClick={() => csvInputRef.current?.click()} disabled={processingCsv} className={primaryBtn}>
                 {processingCsv ? 'Processing...' : 'Select File'}
               </button>
               <p className="text-xs text-gray-500 self-center">The CSV will be analyzed and empty cells filled with relevant data</p>
@@ -769,88 +769,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           </div>
         </div>
       </div>
-
-      {/* --- ADDED: Modal for choosing source and favorites list --- */}
-      {sourceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-md max-w-2xl w-full p-6 card">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold">Choose Source</h4>
-              <button onClick={closeSourceModal} className="text-sm text-muted hover:text-gray-700">Close</button>
-            </div>
-
-            <div className="flex gap-3 mb-4">
-              <button
-                onClick={() => setSourceModalView('choose')}
-                className={`px-3 py-1 rounded text-sm ${sourceModalView === 'choose' ? 'bg-[var(--primary)] text-white' : 'btn-ghost'}`}
-              >
-                Upload from Device
-              </button>
-              <button
-                onClick={() => chooseFavoritesForUseCase(sourceModalUseCase!)}
-                className={`px-3 py-1 rounded text-sm ${sourceModalView === 'favorites' ? 'bg-[var(--primary)] text-white' : 'btn-ghost'}`}
-              >
-                Favorites
-              </button>
-              <button
-                onClick={() => chooseDeviceForUseCase(sourceModalUseCase!)}
-                className="ml-auto btn-ghost text-sm"
-              >
-                Choose Local Device File
-              </button>
-            </div>
-
-            {sourceModalView === 'choose' && (
-              <div className="text-sm text-muted">
-                <p>Select a file from your device (the file picker will open when you confirm).</p>
-              </div>
-            )}
-
-            {sourceModalView === 'favorites' && (
-              <div className="space-y-3">
-                {favLoading ? (
-                  <div className="text-sm text-muted">Loading favorites...</div>
-                ) : favorites.length === 0 ? (
-                  <div className="text-sm text-muted">No favorites available</div>
-                ) : (
-                  favorites.map((f) => (
-                    <div key={(f.timestamp || '') + f.filename} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-[var(--border)]">
-                      <div className="flex-1">
-                        <div className="font-medium truncate">{f.filename || (f.url ?? 'Unknown')}</div>
-                        <div className="text-xs text-muted">{new Date(f.timestamp).toLocaleString()}</div>
-                      </div>
-                      <div className="flex items-center gap-2 ml-4">
-                        <a href={f.url || '#'} target="_blank" rel="noreferrer" className="text-[var(--primary)] hover:underline text-sm">Download</a>
-                        <button
-                          onClick={() => selectFavoriteAndUse(f)}
-                          disabled={favProcessing}
-                          className="btn-primary text-sm"
-                        >
-                          {favProcessing && favProcessingName === f.filename ? 'Using...' : 'Use'}
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-                {favError && <div className="text-sm text-red-600">{favError}</div>}
-              </div>
-            )}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <button onClick={closeSourceModal} className="btn-ghost">Cancel</button>
-              <button
-                onClick={() => {
-                  // quick fallback: open device file picker for the chosen use case
-                  chooseDeviceForUseCase(sourceModalUseCase!);
-                }}
-                className="btn-primary"
-              >
-                Upload from device
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+        

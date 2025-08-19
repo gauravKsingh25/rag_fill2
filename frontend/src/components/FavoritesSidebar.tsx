@@ -11,7 +11,7 @@ export default function FavoritesSidebar() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').trim() || 'http://localhost:8000';
+  const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_BASE_URL || '').trim() || 'http://localhost:8000';
 
   async function loadFavorites() {
     setLoading(true);
