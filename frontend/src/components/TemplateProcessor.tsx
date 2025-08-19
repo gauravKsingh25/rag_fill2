@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { templateApi, csvApi, ApiError } from '@/lib/api';
+import { useState, useRef, useEffect, useCallback } from 'react';
+// removed unused imports: templateApi, csvApi, ApiError
 import { API_BASE_URL } from '@/config/api';
-import { useAuth } from '@/contexts/AuthContext';
+// removed unused import: useAuth
 import { FileHistoryItem } from './FileHistory';
 
 interface TemplateAnalysis {
@@ -44,38 +44,49 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const [analyzingCsv, setAnalyzingCsv] = useState(false);
   const [processingCsv, setProcessingCsv] = useState(false);
   const [analysis, setAnalysis] = useState<TemplateAnalysis | null>(null);
-  const [csvAnalysis, setCsvAnalysis] = useState<CSVAnalysis | null>(null);
+
+  // Mark variables that are assigned but currently unused with a leading underscore.
+  // This keeps the code present but silences ESLint about unused assignments.
+  const [_csvAnalysis, setCsvAnalysis] = useState<CSVAnalysis | null>(null);
+  const [_csvError, setCsvError] = useState<string | null>(null);
+  const [_csvSuccess, setCsvSuccess] = useState<string | null>(null);
+  const [_csvDownloadUrl, setCsvDownloadUrl] = useState<string | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [csvError, setCsvError] = useState<string | null>(null);
-  const [csvSuccess, setCsvSuccess] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [csvDownloadUrl, setCsvDownloadUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState('');
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
-  // Favorites state used by fetchFavorites (restore to avoid ReferenceError)
-  const [favorites, setFavorites] = useState<FileHistoryItem[]>([]);
-  const [favLoading, setFavLoading] = useState(false);
-  const [favError, setFavError] = useState<string | null>(null);
+
+  // Favorites-related state (kept but underscored because UI currently doesn't reference them)
+  const [_favorites, setFavorites] = useState<FileHistoryItem[]>([]);
+  const [_favLoading, setFavLoading] = useState(false);
+  const [_favError, setFavError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const csvAnalyzeInputRef = useRef<HTMLInputElement>(null);
   const activeIntervalsRef = useRef<NodeJS.Timeout[]>([]);
 
-  // --- ADDED: modal / source selection state ---
-  const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [sourceModalUseCase, setSourceModalUseCase] = useState<'analyze-template'|'process-template'|'analyze-csv'|'process-csv' | null>(null);
-  const [sourceModalView, setSourceModalView] = useState<'choose'|'favorites'|'device'>('choose');
+  // Modal / source selection state (underscored since modal UI not currently shown)
+  const [_sourceModalOpen, setSourceModalOpen] = useState(false);
+  const [_sourceModalUseCase, setSourceModalUseCase] = useState<'analyze-template'|'process-template'|'analyze-csv'|'process-csv' | null>(null);
+  const [_sourceModalView, setSourceModalView] = useState<'choose'|'favorites'|'device'>('choose');
 
   // Backend base used to resolve API download URLs (use API_BASE_URL from config)
   const BACKEND_BASE = (API_BASE_URL || 'https://rag-fill2-1.onrender.com').replace(/\/$/, '');
 
-  // new: track favorite processing to keep modal open and disable actions while using a fav
-  const [favProcessing, setFavProcessing] = useState(false);
-  const [favProcessingName, setFavProcessingName] = useState<string | null>(null);
+  // Favorite processing flags (underscored)
+  const [_favProcessing, setFavProcessing] = useState(false);
+  const [_favProcessingName, setFavProcessingName] = useState<string | null>(null);
+
+  // Small button style tokens used across this component for consistent UI
+  const primaryBtn = 'px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50';
+  const ghostBtn = 'px-4 py-2 border border-gray-300 rounded text-sm bg-white hover:bg-gray-50 disabled:opacity-50';
+  const _smallGhost = 'px-3 py-1 border border-gray-200 rounded text-sm bg-white hover:bg-gray-50 disabled:opacity-50';
 
   // Progress simulation during template processing
   useEffect(() => {
@@ -170,7 +181,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       });
       if (!response.ok) throw new Error('GCS upload failed');
       return await response.json();
-    } catch (err) {
+    } catch {
       // Silent fail, don't block main flow
       return null;
     }
@@ -207,8 +218,8 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     await postFavorite(form);
   }
 
-  // Fetch favorites from backend
-  async function fetchFavorites() {
+  // Fetch favorites from backend (memoized)
+  const fetchFavorites = useCallback(async () => {
     setFavLoading(true);
     try {
       const res = await fetch(`${BACKEND_BASE}/api/favorites/`);
@@ -221,12 +232,12 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     } finally {
       setFavLoading(false);
     }
-  }
+  }, [BACKEND_BASE]);
 
   useEffect(() => {
     // load favorites once on mount
     fetchFavorites();
-  }, []);
+  }, [fetchFavorites]);
 
   // --- NEW: file-based helpers reused by device & favorites flows ---
   async function analyzeTemplateFile(file: File) {
@@ -415,7 +426,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     setSourceModalView('choose');
   };
 
-  const chooseDeviceForUseCase = (useCase: typeof sourceModalUseCase) => {
+  const chooseDeviceForUseCase = (useCase: typeof _sourceModalUseCase) => {
     closeSourceModal();
     setTimeout(() => {
       if (useCase === 'analyze-template') fileInputRef.current?.click();
@@ -425,7 +436,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     }, 50);
   };
 
-  const chooseFavoritesForUseCase = (useCase: typeof sourceModalUseCase) => {
+  const chooseFavoritesForUseCase = (useCase: typeof _sourceModalUseCase) => {
     setSourceModalView('favorites');
   };
 
@@ -433,7 +444,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     // quick validation
     if (!fav.filename && !fav.url) {
       const msg = 'Selected favorite has no filename or URL.';
-      if (sourceModalUseCase && sourceModalUseCase.includes('csv')) setCsvError(msg);
+      if (_sourceModalUseCase && _sourceModalUseCase.includes('csv')) setCsvError(msg);
       else setError(msg);
       return;
     }
@@ -473,21 +484,17 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       for (const c of candidates) {
         try {
           // small debug log
-          // eslint-disable-next-line no-console
           console.debug('[Favorites] trying candidate URL:', c);
           resp = await fetch(c, { method: 'GET' });
           if (resp && resp.ok) {
-            // eslint-disable-next-line no-console
             console.debug('[Favorites] fetched OK from', c, 'status', resp.status);
             break;
           } else {
-            // eslint-disable-next-line no-console
             console.debug('[Favorites] candidate failed', c, resp?.status);
             resp = null;
           }
         } catch (fetchErr) {
           lastError = fetchErr as Error;
-          // eslint-disable-next-line no-console
           console.debug('[Favorites] fetch error for', c, fetchErr);
           resp = null;
         }
@@ -502,13 +509,13 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
 
       // call appropriate handler and only close modal on success
-      if (sourceModalUseCase === 'analyze-template') {
+      if (_sourceModalUseCase === 'analyze-template') {
         await analyzeTemplateFile(file);
-      } else if (sourceModalUseCase === 'process-template') {
+      } else if (_sourceModalUseCase === 'process-template') {
         await processTemplateFile(file);
-      } else if (sourceModalUseCase === 'analyze-csv') {
+      } else if (_sourceModalUseCase === 'analyze-csv') {
         await analyzeCsvFile(file);
-      } else if (sourceModalUseCase === 'process-csv') {
+      } else if (_sourceModalUseCase === 'process-csv') {
         await processCsvFile(file);
       } else {
         throw new Error('Unknown use case');
@@ -520,10 +527,9 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const msg = err instanceof Error ? err.message : 'Failed to use favorite';
       // show error inside modal so user sees it
       setFavError(msg);
-      if (sourceModalUseCase && sourceModalUseCase.includes('csv')) setCsvError(msg);
+      if (_sourceModalUseCase && _sourceModalUseCase.includes('csv')) setCsvError(msg);
       else setError(msg);
       // keep modal open so user can retry or click the download link
-      // eslint-disable-next-line no-console
       console.error('[Favorites] selectFavoriteAndUse failed:', msg);
     } finally {
       setFavProcessing(false);
@@ -541,11 +547,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     a.click();
     a.remove();
   };
-
-  // Small button style tokens used across this component for consistent UI
-  const primaryBtn = 'px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50';
-  const ghostBtn = 'px-4 py-2 border border-gray-300 rounded text-sm bg-white hover:bg-gray-50 disabled:opacity-50';
-  const smallGhost = 'px-3 py-1 border border-gray-200 rounded text-sm bg-white hover:bg-gray-50 disabled:opacity-50';
 
   return (
     <div className="space-y-6">
@@ -772,4 +773,3 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     </div>
   );
 }
-        

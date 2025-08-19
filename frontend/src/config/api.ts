@@ -1,10 +1,15 @@
 // API Configuration
 // This file centralizes API configuration to avoid hardcoded URLs
 
+// Define a small type to avoid using `any` when accessing runtime globals
+type RuntimeGlobals = {
+  __NEXT_PUBLIC_BACKEND_BASE_URL?: string;
+};
+
 // Determine the API base URL based on environment and runtime overrides
 const getApiBaseUrl = (): string => {
   // 1) Runtime override (set on globalThis if needed)
-  const runtimeOverride = (globalThis as any).__NEXT_PUBLIC_BACKEND_BASE_URL;
+  const runtimeOverride = (globalThis as unknown as RuntimeGlobals).__NEXT_PUBLIC_BACKEND_BASE_URL;
   if (typeof runtimeOverride === 'string' && runtimeOverride.trim() !== '') {
     return runtimeOverride.replace(/\/$/, '');
   }
@@ -30,7 +35,7 @@ const getApiBaseUrl = (): string => {
 
 // Compute base once and also write it to globalThis so other runtime code can read/override it
 const RUNTIME_API_BASE = getApiBaseUrl();
-(globalThis as any).__NEXT_PUBLIC_BACKEND_BASE_URL = RUNTIME_API_BASE;
+(globalThis as unknown as RuntimeGlobals).__NEXT_PUBLIC_BACKEND_BASE_URL = RUNTIME_API_BASE;
 
 export const API_CONFIG = {
   BASE_URL: RUNTIME_API_BASE,
