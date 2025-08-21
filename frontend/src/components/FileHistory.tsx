@@ -18,6 +18,7 @@ export default function FileHistory({ history }: FileHistoryProps) {
   const [remoteHistory, setRemoteHistory] = useState<FileHistoryItem[] | null>(null);
   const [loading, setLoading] = useState(false);
 
+ 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
   const [apiBaseError, setApiBaseError] = useState<string | null>(null);
 

@@ -14,6 +14,7 @@ from typing import Dict, Any
 from io import StringIO, BytesIO
 
 from app.services.enhanced_csv_processor import EnhancedCSVProcessor
+from app.routers.file_history import add_file_to_history
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ async def fill_blank_template(
     1. Processes the blank CSV template
     2. For each empty cell, tries multiple filling strategies
     3. Returns filled CSV with full provenance tracking
+    4. Adds result to file history (not favorites)
     """
     
     try:
@@ -144,6 +146,21 @@ async def fill_blank_template(
         if len(fill_metadata["provenance"]) <= 100:  # Only include for smaller files
             response["provenance"] = fill_metadata["provenance"]
         
+        # Add to file history (not favorites)
+        try:
+            filled_filename = f"enhanced_filled_{file.filename}"
+            await add_file_to_history(
+                filename=filled_filename,
+                file_path=None,
+                file_obj=None,
+                content_type='text/csv',
+                file_type="processed_csv",
+                gcs_folder="enhanced_filled_csv"
+            )
+            logger.info(f"✅ Added enhanced filled CSV to file history: {filled_filename}")
+        except Exception as e:
+            logger.warning(f"Could not add enhanced filled CSV to file history: {e}")
+        
         return response
         
     except Exception as e:
@@ -180,6 +197,18 @@ async def fill_and_download(
         # Prepare filename
         original_name = file.filename.replace('.csv', '')
         filled_filename = f"{original_name}_filled.csv"
+        
+        # Add to file history before returning the file
+        try:
+            await add_file_to_history(
+                filename=filled_filename,
+                file_path=temp_file_path,
+                content_type='text/csv',
+                file_type="filled",
+                gcs_folder="filled_csv"
+            )
+        except Exception as e:
+            logger.warning(f"Could not add filled CSV to file history: {e}")
         
         return FileResponse(
             path=temp_file_path,

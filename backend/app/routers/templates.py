@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 import tempfile
 import os
+from datetime import datetime
 from docx import Document
 
 from app.models import TemplateRequest, TemplateResponse
@@ -16,6 +17,7 @@ from app.services.csv_processor import CSVProcessor
 from app.routers.devices import get_device
 from app.services import gcs_service
 from app.database import mongodb
+from app.routers.file_history import add_file_to_history
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -284,37 +286,18 @@ async def process_template(
         # Clean up temp file
         os.unlink(temp_file_path)
 
-        # Try to upload the filled template to GCS and persist metadata so it appears in file history
+        # Try to upload the filled template to GCS and add to file history (not favorites)
         try:
             if gcs_service.is_available():
-                with open(filled_path, 'rb') as f:
-                    dest_name = f"filled_templates/{filled_filename}"
-                    gcs_service.upload_fileobj(f, dest_name, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-                    url = gcs_service.generate_signed_url(dest_name, expires_seconds=3600*24*7)
-
-                    record = {
-                        "filename": filled_filename,
-                        "url": url,
-                        "type": "filled",
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "content_type": 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        "size_bytes": Path(filled_path).stat().st_size
-                    }
-
-                    # Persist metadata
-                    if mongodb.database is not None:
-                        coll = mongodb.database.get_collection("file_history")
-                        await coll.insert_one(record)
-                    else:
-                        # Use a simple GCS index blob to track metadata
-                        try:
-                            index_text = gcs_service.download_blob_as_text('file_history/index.json')
-                            import json
-                            items = json.loads(index_text)
-                        except Exception:
-                            items = []
-                        items.insert(0, record)
-                        gcs_service.upload_json(items, 'file_history/index.json')
+                # Use the centralized file history function
+                await add_file_to_history(
+                    filename=filled_filename,
+                    file_path=str(filled_path),
+                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    file_type="filled_template",
+                    gcs_folder="filled_templates"
+                )
+                logger.info(f"✅ Added filled template to file history: {filled_filename}")
         except Exception as e:
             logger.warning(f"Could not upload filled template to GCS or persist metadata: {e}")
         
@@ -825,17 +808,26 @@ async def analyze_template(
                 
                 field_analysis[field] = {
                     "can_fill": len(search_results) > 0,
+                    
                     "confidence": search_results[0].score if search_results else 0,
                     "sources": len(search_results)
                 }
             
-            return {
+            analysis_result = {
                 "device_id": device_id,
                 "template_filename": file.filename,
+                "analysis_type": "Template Field Analysis",
                 "total_fields": len(placeholder_fields),
                 "fillable_fields": len([f for f, a in field_analysis.items() if a["can_fill"]]),
                 "field_analysis": field_analysis
             }
+            
+            logger.info(f"✅ Template analysis completed: {len([f for f, a in field_analysis.items() if a['can_fill']])}/{len(placeholder_fields)} fields can be filled")
+            
+            # Note: We don't add analysis results to file history since it's just analysis data, not a file
+            # The analysis results are returned directly to the frontend for display
+            
+            return analysis_result
             
         finally:
             # Clean up temp file
@@ -874,6 +866,33 @@ async def upload_and_fill_csv(
             device_id=device_id
         )
         
+        # Add the filled CSV to file history (not favorites)
+        if result.get('success') and result.get('filled_csv_url'):
+            try:
+                filled_filename = f"filled_{file.filename}"
+                # Extract the actual filename from the download URL
+                download_url = result.get('filled_csv_url', '')
+                if '/download-csv/' in download_url:
+                    actual_filename = download_url.split('/download-csv/')[-1]
+                    local_file_path = Path("./filled_templates") / actual_filename
+                    
+                    if local_file_path.exists():
+                        await add_file_to_history(
+                            filename=filled_filename,
+                            file_path=str(local_file_path),
+                            file_obj=None,
+                            content_type='text/csv',
+                            file_type="processed_csv",
+                            gcs_folder="processed_csv"
+                        )
+                        logger.info(f"✅ Added filled CSV to file history: {filled_filename}")
+                    else:
+                        logger.warning(f"Local file not found for history upload: {local_file_path}")
+                else:
+                    logger.warning(f"Could not extract filename from download URL: {download_url}")
+            except Exception as e:
+                logger.warning(f"Could not add filled CSV to file history: {e}")
+        
         return result
         
     except HTTPException:
@@ -908,7 +927,7 @@ async def analyze_csv(
     device_id: str = Form(...),
     file: UploadFile = File(...)
 ):
-    """Analyze a CSV file to show which cells can be filled"""
+    """Analyze a CSV file to show which cells can be filled - similar to document analysis"""
     try:
         # Verify device exists
         await get_device(device_id)
@@ -927,50 +946,119 @@ async def analyze_csv(
         df = csv_processor._parse_csv_content(csv_content)
         empty_cells = csv_processor._identify_empty_cells(df)
         
-        # Analyze each empty cell to estimate fillability
+        logger.info(f"📊 Analyzing CSV: {len(df)} rows, {len(df.columns)} columns, {len(empty_cells)} empty cells")
+        
+        # Analyze each empty cell to estimate fillability - analyze more cells for better analysis
         fillable_cells = 0
         cell_analysis = {}
+        column_analysis = {}
         
-        for cell_info in empty_cells[:10]:  # Analyze first 10 for performance
-            row_idx = cell_info['row']
+        # Group empty cells by column for better analysis
+        cells_by_column = {}
+        for cell_info in empty_cells:
             col_name = cell_info['column']
-            
-            # Generate search query for this cell
-            context_info = csv_processor._extract_cell_context(df, row_idx, col_name)
-            queries = await csv_processor._generate_cell_queries(context_info)
-            
-            # Test search for this cell
-            if queries:
-                query_embedding = await gemini_service.get_embedding(queries[0])
-                search_results = await pinecone_service.search_vectors(
-                    query_vector=query_embedding,
-                    device_id=device_id,
-                    top_k=3
-                )
-                
-                can_fill = len(search_results) > 0
-                confidence = search_results[0].score if search_results else 0
-                
-                if can_fill:
-                    fillable_cells += 1
-                
-                cell_key = f"Row {row_idx + 1}, {col_name}"
-                cell_analysis[cell_key] = {
-                    "can_fill": can_fill,
-                    "confidence": confidence,
-                    "sources": len(search_results)
-                }
+            if col_name not in cells_by_column:
+                cells_by_column[col_name] = []
+            cells_by_column[col_name].append(cell_info)
         
-        return {
+        # Analyze each column's fillability
+        for col_name, column_cells in cells_by_column.items():
+            column_fillable = 0
+            column_confidence_scores = []
+            column_sample_analysis = {}
+            
+            # Analyze up to 5 cells per column for detailed analysis
+            sample_cells = column_cells[:5]
+            
+            for cell_info in sample_cells:
+                row_idx = cell_info['row']
+                
+                # Generate search query for this cell
+                context_info = csv_processor._extract_cell_context(df, row_idx, col_name)
+                queries = await csv_processor._generate_cell_queries(context_info)
+                
+                # Test search for this cell
+                if queries:
+                    try:
+                        query_embedding = await gemini_service.get_embedding(queries[0])
+                        search_results = await pinecone_service.search_vectors(
+                            query_vector=query_embedding,
+                            device_id=device_id,
+                            top_k=5
+                        )
+                        
+                        can_fill = len(search_results) > 0 and search_results[0].score > 0.3
+                        confidence = search_results[0].score if search_results else 0
+                        
+                        if can_fill:
+                            column_fillable += 1
+                            fillable_cells += 1
+                        
+                        column_confidence_scores.append(confidence)
+                        
+                        cell_key = f"Row {row_idx + 1}"
+                        column_sample_analysis[cell_key] = {
+                            "can_fill": can_fill,
+                            "confidence": round(confidence, 3),
+                            "sources": len(search_results),
+                            "sample_query": queries[0] if queries else "No query generated"
+                        }
+                    except Exception as e:
+                        logger.warning(f"Failed to analyze cell [{row_idx}, {col_name}]: {e}")
+                        column_sample_analysis[f"Row {row_idx + 1}"] = {
+                            "can_fill": False,
+                            "confidence": 0,
+                            "sources": 0,
+                            "error": str(e)
+                        }
+            
+            # Calculate column-level statistics
+            avg_confidence = sum(column_confidence_scores) / len(column_confidence_scores) if column_confidence_scores else 0
+            fill_rate = column_fillable / len(sample_cells) if sample_cells else 0
+            
+            column_analysis[col_name] = {
+                "empty_cells_in_column": len(column_cells),
+                "sample_cells_analyzed": len(sample_cells),
+                "fillable_cells": column_fillable,
+                "fill_rate": round(fill_rate, 2),
+                "average_confidence": round(avg_confidence, 3),
+                "sample_analysis": column_sample_analysis,
+                "data_pattern": csv_processor._detect_column_pattern(df[col_name].dropna().tolist()[:5])
+            }
+        
+        # Calculate overall statistics
+        total_analyzed = sum(len(cells[:5]) for cells in cells_by_column.values())
+        overall_fill_rate = fillable_cells / total_analyzed if total_analyzed > 0 else 0
+        
+        analysis_result = {
             "device_id": device_id,
             "csv_filename": file.filename,
-            "total_rows": len(df),
-            "total_columns": len(df.columns),
-            "total_empty_cells": len(empty_cells),
-            "fillable_cells": fillable_cells,
-            "sample_analysis": cell_analysis,
-            "columns": list(df.columns)
+            "analysis_type": "CSV Field Analysis",
+            "summary": {
+                "total_rows": len(df),
+                "total_columns": len(df.columns),
+                "total_empty_cells": len(empty_cells),
+                "columns_with_empty_cells": len(cells_by_column),
+                "sample_cells_analyzed": total_analyzed,
+                "fillable_cells": fillable_cells,
+                "overall_fill_rate": round(overall_fill_rate, 2),
+                "analysis_status": "completed"
+            },
+            "columns": list(df.columns),
+            "column_analysis": column_analysis,
+            "recommendations": {
+                "high_fill_rate_columns": [col for col, analysis in column_analysis.items() if analysis["fill_rate"] > 0.7],
+                "low_fill_rate_columns": [col for col, analysis in column_analysis.items() if analysis["fill_rate"] < 0.3],
+                "total_processable": len([col for col, analysis in column_analysis.items() if analysis["fill_rate"] > 0.0])
+            }
         }
+        
+        logger.info(f"✅ CSV analysis completed: {fillable_cells}/{total_analyzed} cells can be filled")
+        
+        # Note: We don't add analysis results to file history since it's just analysis data, not a file
+        # The analysis results are returned directly to the frontend for display
+        
+        return analysis_result
         
     except HTTPException:
         raise

@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "rag-fill-py",
+  "private_key_id": "d1a683dcf003bb1a67b0a2661ad6a4cbfaf4ee02",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDEgTkfT4kGoCp3\nFhbw/lqFmn+WEcG4p1RxuT3cj9Y+o1RS8qNf3FIxrQ3So2ZlICwyPa68gLCJdLUO\n4baKwfLAkywxoLJ1Qf9m8HCDKKhG915kY6aYUOyuWC6KKVb9dixb6OEwKGY8ZjA6\nitTU10rGWuM2bmh8Vq6ZnDNzQUradKjyG74DRobSC6mvy0E8biVYNHOlxPTsPtuG\nUB1uzDORMBXK3qv8yb0Mllk9pmAZPpeY6DN9IxcaxdjdrxbQk4gGjgUNvJx2Be3N\nmnyBv9ARWrs4B2UezbKF6+1oHMpbX4qMXLQ+F3boOuxjxnt3cVB97duUtOIVoHj4\nYbwhRXz/AgMBAAECggEAHsxAByvAhqTQswRnyRKcXmc2Cu+yhH3ZSs+lJe33Pq77\nltqHh40w5q9ARNyuPjg6JQ+s1Md4o7qCbBgtM3ctVEhcu1R708vpuxkBEVVsdl7r\n0OEbabD5P2P7u1S6WRRN5IPN023phBriATLkI42wnwD8rnnEb4RobhPgrnYzxKQQ\nwF+T7uM3x4Utyyw+fApaEf2UnEuyBqpu3XwkzhAW8nRK9rhLYU8XfL73OewZkrya\nAQJNjLOpwdmAtZv77owVMwg3ZpSWzYouK1i1yawyMQiQnMltLN6HQgSzzmntAEIT\n2JEqFdMtUaMBoUAXClRpOdI+MEAAfLR99We9lQBCBQKBgQDpSQtstRlogs5B7EHH\ns7CR6dUUR55lk21yaQTSsF1BpNCjoS/LuObMPvrxCG9RSwu4edMuiyltBfNALCvj\nyVMxFuziR0eiPiKMuNVu5mMrQwB3RlnoEOpIwDO+q3mw5nzCbYF2L6ZQdmmmMT1F\n0wQ2WG0k26jsedNOJ1X6FfJ/GwKBgQDXo199y1zEhG1jK03qoQ6sdUXGFHUJFqKX\nYvrB6N4z2C3QLF5PEl1Ru+mkYCZb/BDVL8xKpKhj8l9DJCreuXC422Ge0t535Bis\nLKlo6pskdSh3BzKxMu6JzDNVRySKd4No9aucMS23baJ8iU0TI0/j/qkaDhFjBFFk\n1zWhJuGD7QKBgQCCHhXbOl/DpUH6DxbZlmYj3LLWruOwcDyZle30vh4l4RHmUp9g\nF+/TeEVrb3L3es48xOZ/jWs7vhfhcUHBuadHOCxEQdG4ssN+jhGt257woFyAKqM3\nB0hF775s2SP1AXoQ0Bdnnkg7lPB0m/47FenBjizCZCqiS4kKjHIuHVO2hQKBgHyo\nR0WzUFeSrqHLoOloXdE4ojNWFCpC2Y9mesuqUPnrmOBlJcfUN/pOBU0vAD3gw+Ja\nFWF5Opc8v/FScS38SbuzpwVnpY/tXo35651pMnKq/89/a8CgTuF+GJbN38PkPyVo\nD+LlUyZczLftr47GtSJ6T0tuooJ5NoxzFN+qWGgpAoGAANNiAfeLyCvRABIX3tk5\numRG6/ZITWHvuwi5P9rQBlmyWL4ZM+cFtdV2smoSDbcdNa15OFaPDJeMbP8FP9fB\nVgLhmryyV21Og58fSPvNhRHRHuMph6PWWKxbejScjbAbalDY5L/w7FnCHx4awXO5\nvjgIjTmqz+Y56gRp2MnlXhc=\n-----END PRIVATE KEY-----\n",
+  "client_email": "rag-fill@rag-fill-py.iam.gserviceaccount.com",
+  "client_id": "100663400628619154473",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/rag-fill%40rag-fill-py.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

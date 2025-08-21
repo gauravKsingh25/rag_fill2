@@ -94,6 +94,68 @@ def download_blob_as_text(blob_name: str) -> str:
     return blob.download_as_text()
 
 
+def upload_fileobj_to_bucket(file_obj, destination_name: str, bucket_name: str, content_type: Optional[str] = None) -> str:
+    """Upload a file-like object to a specific GCS bucket and return the blob name."""
+    _ensure_client()
+    if not _client:
+        raise RuntimeError("GCS client not available")
+    
+    # Use the specified bucket instead of the default bucket
+    target_bucket = _client.bucket(bucket_name)
+    blob = target_bucket.blob(destination_name)
+    
+    # Rewind if possible
+    try:
+        file_obj.seek(0)
+    except Exception:
+        pass
+    try:
+        blob.upload_from_file(file_obj, content_type=content_type)
+    except Exception as e:
+        logger.error(f"GCS upload failed for {destination_name} to bucket {bucket_name}: {e}")
+        raise
+    logger.info(f"Uploaded to GCS bucket {bucket_name}: {destination_name}")
+    return destination_name
+
+
+def generate_signed_url_from_bucket(blob_name: str, bucket_name: str, expires_seconds: int = 3600) -> str:
+    """Generate signed URL for a blob in a specific bucket."""
+    _ensure_client()
+    if not _client:
+        raise RuntimeError("GCS client not available")
+    
+    target_bucket = _client.bucket(bucket_name)
+    blob = target_bucket.blob(blob_name)
+    expiration = datetime.utcnow() + timedelta(seconds=expires_seconds)
+    url = blob.generate_signed_url(expiration=expiration)
+    return url
+
+
+def upload_json_to_bucket(data: dict, destination_name: str, bucket_name: str, content_type: str = "application/json") -> str:
+    """Upload a JSON-serializable dict to a specific bucket and return blob name."""
+    _ensure_client()
+    if not _client:
+        raise RuntimeError("GCS client not available")
+    
+    import json
+    target_bucket = _client.bucket(bucket_name)
+    blob = target_bucket.blob(destination_name)
+    blob.upload_from_string(json.dumps(data, ensure_ascii=False), content_type=content_type)
+    logger.info(f"Uploaded JSON to GCS bucket {bucket_name}: {destination_name}")
+    return destination_name
+
+
+def download_blob_as_text_from_bucket(blob_name: str, bucket_name: str) -> str:
+    """Download blob as text from a specific bucket."""
+    _ensure_client()
+    if not _client:
+        raise RuntimeError("GCS client not available")
+    
+    target_bucket = _client.bucket(bucket_name)
+    blob = target_bucket.blob(blob_name)
+    return blob.download_as_text()
+
+
 def upload_fileobj(file_obj, destination_name: str, content_type: Optional[str] = None) -> str:
     """Upload a file-like object to GCS and return the blob name."""
     _ensure_client()

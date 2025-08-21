@@ -14,6 +14,7 @@ from typing import Dict, Any
 from io import StringIO, BytesIO
 
 from app.services.robust_csv_processor import RobustCSVProcessor
+from app.routers.file_history import add_file_to_history
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ async def fill_blank_template(
         filled_df.to_csv(csv_output, index=False)
         csv_string = csv_output.getvalue()
         
-        return {
+        response = {
             "message": "Template filled successfully",
             "device_id": device_id,
             "namespace": namespace,
@@ -117,6 +118,23 @@ async def fill_blank_template(
             "original_blanks": int(blank_count),
             **result
         }
+        
+        # Add to file history (not favorites)
+        try:
+            filled_filename = f"robust_filled_{file.filename}"
+            await add_file_to_history(
+                filename=filled_filename,
+                file_path=None,
+                file_obj=None,
+                content_type='text/csv',
+                file_type="processed_csv",
+                gcs_folder="robust_filled_csv"
+            )
+            logger.info(f"✅ Added robust filled CSV to file history: {filled_filename}")
+        except Exception as e:
+            logger.warning(f"Could not add robust filled CSV to file history: {e}")
+        
+        return response
         
     except pd.errors.EmptyDataError:
         raise HTTPException(status_code=400, detail="CSV file is empty or invalid")

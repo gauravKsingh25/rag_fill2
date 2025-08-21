@@ -1,3 +1,22 @@
+"""
+Favorites Management
+
+This module handles the favorites functionality for user-curated files.
+
+IMPORTANT: This should ONLY be used for:
+- Files manually uploaded by users via "Add to Favorites" button
+- User-selected files to be marked as favorites
+- Explicit user actions to favorite content
+
+Do NOT use this for:
+- System-processed files (use file_history instead)
+- Analyzed templates or CSV files
+- Filled/processed content
+- Any automated system operations
+
+For automated file tracking, use file_history.add_file_to_history() instead.
+"""
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import List, Dict, Any
 import logging
@@ -11,6 +30,8 @@ from app.database import mongodb  # optional usage if you want DB persistence
 router = APIRouter(prefix="/api/favorites", tags=["Favorites"])
 logger = logging.getLogger(__name__)
 
+# Hardcoded GCS bucket name for favorites (separate from file history)
+FAVORITES_GCS_BUCKET = "rag-fav"
 GCS_INDEX_BLOB = "favorites/index.json"
 
 _backend_root = Path(__file__).resolve().parents[2]
@@ -45,21 +66,31 @@ async def _load_index_from_gcs() -> List[Dict[str, Any]]:
     if not gcs_service.is_available():
         return _load_index_local()
     try:
-        text = gcs_service.download_blob_as_text(GCS_INDEX_BLOB)
+        # Use the favorites-specific bucket
+        text = gcs_service.download_blob_as_text_from_bucket(GCS_INDEX_BLOB, FAVORITES_GCS_BUCKET)
         return json.loads(text)
     except Exception as e:
-        logger.warning(f"Failed to load favorites index from GCS: {e}; falling back to local")
-        return _load_index_local()
+        logger.warning(f"Failed to load favorites index from GCS bucket {FAVORITES_GCS_BUCKET}: {e}")
+        # Initialize empty favorites index in the bucket instead of falling back to local
+        try:
+            empty_index = []
+            gcs_service.upload_json_to_bucket(empty_index, GCS_INDEX_BLOB, FAVORITES_GCS_BUCKET)
+            logger.info(f"✅ Initialized empty favorites index in bucket '{FAVORITES_GCS_BUCKET}'")
+            return empty_index
+        except Exception as init_error:
+            logger.error(f"Failed to initialize favorites index in bucket: {init_error}; falling back to local")
+            return _load_index_local()
 
 
 async def _save_index_to_gcs(items: List[Dict[str, Any]]):
     if not gcs_service.is_available():
         return _save_index_local(items)
     try:
-        gcs_service.upload_json(items, GCS_INDEX_BLOB)
+        # Use the favorites-specific bucket
+        gcs_service.upload_json_to_bucket(items, GCS_INDEX_BLOB, FAVORITES_GCS_BUCKET)
         return True
     except Exception as e:
-        logger.error(f"Failed to save favorites index to GCS: {e}; falling back to local")
+        logger.error(f"Failed to save favorites index to GCS bucket {FAVORITES_GCS_BUCKET}: {e}; falling back to local")
         return _save_index_local(items)
 
 
@@ -84,6 +115,8 @@ async def add_favorite(
         record: Dict[str, Any] = {}
         if file is not None:
             dest_name = f"fav_{int(datetime.utcnow().timestamp())}_{file.filename}"
+            logger.info(f"📁 Uploading favorite file to bucket '{FAVORITES_GCS_BUCKET}': {file.filename}")
+            
             size = None
             try:
                 pos = file.file.tell()
@@ -95,16 +128,20 @@ async def add_favorite(
 
             if gcs_service.is_available():
                 try:
-                    gcs_service.upload_fileobj(file.file, dest_name, content_type=file.content_type)
+                    # Upload to the favorites-specific bucket
+                    gcs_service.upload_fileobj_to_bucket(file.file, dest_name, FAVORITES_GCS_BUCKET, content_type=file.content_type)
                     try:
-                        url = gcs_service.generate_signed_url(dest_name, expires_seconds=3600*24*7)
+                        # Generate signed URL from the favorites bucket
+                        url = gcs_service.generate_signed_url_from_bucket(dest_name, FAVORITES_GCS_BUCKET, expires_seconds=3600*24*7)
+                        logger.info(f"✅ Successfully uploaded favorite to bucket '{FAVORITES_GCS_BUCKET}': {dest_name}")
                     except Exception:
                         url = ""
                 except Exception as upload_err:
-                    logger.error(f"Failed to upload favorite to GCS: {upload_err}")
+                    logger.error(f"Failed to upload favorite to GCS bucket {FAVORITES_GCS_BUCKET}: {upload_err}")
                     url = ""
             else:
                 url = ""
+                logger.warning(f"GCS not available - favorite will be stored locally only")
 
             record = {
                 "filename": file.filename,

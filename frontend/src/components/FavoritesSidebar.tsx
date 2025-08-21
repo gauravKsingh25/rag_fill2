@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { FiDownload } from 'react-icons/fi';
 import type { FileHistoryItem } from './FileHistory';
+import { API_BASE_URL } from '@/config/api';
 
 export default function FavoritesSidebar() {
   const [favorites, setFavorites] = useState<FileHistoryItem[]>([]);

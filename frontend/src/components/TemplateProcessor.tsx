@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { templateApi, csvApi, ApiError } from '@/lib/api';
-import { API_BASE_URL } from '@/config/api';
-import { useAuth } from '@/contexts/AuthContext';
+
+
 import { FileHistoryItem } from './FileHistory';
 
 interface TemplateAnalysis {
@@ -21,16 +21,38 @@ interface TemplateAnalysis {
 interface CSVAnalysis {
   device_id: string;
   csv_filename: string;
-  total_rows: number;
-  total_columns: number;
-  total_empty_cells: number;
-  fillable_cells: number;
-  sample_analysis: Record<string, {
-    can_fill: boolean;
-    confidence: number;
-    sources: number;
-  }>;
+  analysis_type: string;
+  summary: {
+    total_rows: number;
+    total_columns: number;
+    total_empty_cells: number;
+    columns_with_empty_cells: number;
+    sample_cells_analyzed: number;
+    fillable_cells: number;
+    overall_fill_rate: number;
+    analysis_status: string;
+  };
   columns: string[];
+  column_analysis: Record<string, {
+    empty_cells_in_column: number;
+    sample_cells_analyzed: number;
+    fillable_cells: number;
+    fill_rate: number;
+    average_confidence: number;
+    sample_analysis: Record<string, {
+      can_fill: boolean;
+      confidence: number;
+      sources: number;
+      sample_query?: string;
+      error?: string;
+    }>;
+    data_pattern: string;
+  }>;
+  recommendations: {
+    high_fill_rate_columns: string[];
+    low_fill_rate_columns: string[];
+    total_processable: number;
+  };
 }
 
 interface TemplateProcessorProps {
@@ -55,27 +77,11 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const [progressStage, setProgressStage] = useState('');
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
-  // Favorites state used by fetchFavorites (restore to avoid ReferenceError)
-  const [favorites, setFavorites] = useState<FileHistoryItem[]>([]);
-  const [favLoading, setFavLoading] = useState(false);
-  const [favError, setFavError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const csvAnalyzeInputRef = useRef<HTMLInputElement>(null);
   const activeIntervalsRef = useRef<NodeJS.Timeout[]>([]);
-
-  // --- ADDED: modal / source selection state ---
-  const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [sourceModalUseCase, setSourceModalUseCase] = useState<'analyze-template'|'process-template'|'analyze-csv'|'process-csv' | null>(null);
-  const [sourceModalView, setSourceModalView] = useState<'choose'|'favorites'|'device'>('choose');
-
-  // Backend base used to resolve API download URLs (use env or fallback)
-  const BACKEND_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000').replace(/\/$/, '');
-
-  // new: track favorite processing to keep modal open and disable actions while using a fav
-  const [favProcessing, setFavProcessing] = useState(false);
-  const [favProcessingName, setFavProcessingName] = useState<string | null>(null);
 
   // Progress simulation during template processing
   useEffect(() => {
@@ -157,78 +163,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     };
   }, [processing, startTime]);
 
-  // Helper to upload file to GCS via file-history API
-  async function uploadFileToGCS(file: File, type: string, timestamp?: string) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', type);
-    formData.append('timestamp', timestamp || new Date().toISOString());
-    try {
-      const response = await fetch('http://localhost:8000/api/favorites/', {
-        method: 'POST',
-        body: formData,
-      });
-      if (!response.ok) throw new Error('GCS upload failed');
-      return await response.json();
-    } catch (err) {
-      // Silent fail, don't block main flow
-      return null;
-    }
-  }
-
-  // Minimal helper to POST favorite metadata or file to backend (no local UI state here)
-  async function postFavorite(formData: FormData) {
-    try {
-      await fetch('http://localhost:8000/api/favorites/', {
-        method: 'POST',
-        body: formData,
-      });
-    } catch (e) {
-      // ignore — sidebar will reflect server state on refresh
-      console.error('Failed to post favorite', e);
-    }
-  }
-
-  async function addFavoriteFromFile_noUI(file: File, type: 'analyzed' | 'filled', url?: string) {
-    const form = new FormData();
-    form.append('file', file);
-    form.append('type', type);
-    form.append('filename', file.name);
-    if (url) form.append('url', url);
-    await postFavorite(form);
-  }
-
-  async function addFavoriteMetadata_noUI(metadata: FileHistoryItem) {
-    const form = new FormData();
-    form.append('filename', metadata.filename);
-    form.append('type', metadata.type);
-    form.append('timestamp', metadata.timestamp);
-    if (metadata.url) form.append('url', metadata.url);
-    await postFavorite(form);
-  }
-
-  // Fetch favorites from backend
-  async function fetchFavorites() {
-    setFavLoading(true);
-    try {
-      const res = await fetch('http://localhost:8000/api/favorites/');
-      if (!res.ok) throw new Error('Failed to load favorites');
-      const items = await res.json();
-      setFavorites(items);
-    } catch (e) {
-      setFavError((e as Error).message || 'Failed to load favorites');
-      setFavorites([]);
-    } finally {
-      setFavLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    // load favorites once on mount
-    fetchFavorites();
-  }, []);
-
-  // --- NEW: file-based helpers reused by device & favorites flows ---
+  // --- File-based analysis and processing functions ---
   async function analyzeTemplateFile(file: File) {
     if (!file) return;
     if (!file.name.endsWith('.docx')) {
@@ -249,11 +184,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       }
       const result = await response.json();
       setAnalysis(result);
-      if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.template_filename, type: 'analyzed', url: '', timestamp: new Date().toISOString() });
-      }
-      await uploadFileToGCS(file, 'analyzed', new Date().toISOString());
-      await addFavoriteMetadata_noUI({ filename: result.template_filename, type: 'analyzed', url: '', timestamp: new Date().toISOString() });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
@@ -295,8 +225,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       if (onFileHistoryUpdate) {
         onFileHistoryUpdate({ filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
       }
-      await uploadFileToGCS(file, 'filled', new Date().toISOString());
-      await addFavoriteFromFile_noUI(file, 'filled', `http://localhost:8000${result.filled_template_url}`);
       if (processInputRef.current) processInputRef.current.value = '';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed');
@@ -327,10 +255,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       }
       const result = await response.json();
       setCsvAnalysis(result);
-      if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.csv_filename, type: 'analyzed', url: '', timestamp: new Date().toISOString() });
-      }
-      await uploadFileToGCS(file, 'analyzed', new Date().toISOString());
       if (csvAnalyzeInputRef.current) csvAnalyzeInputRef.current.value = '';
     } catch (err) {
       setCsvError(err instanceof Error ? err.message : 'CSV analysis failed');
@@ -359,12 +283,13 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
         throw new Error(errorData.detail || 'CSV processing failed');
       }
       const result = await response.json();
-      setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} out of ${result.total_empty_cells} empty cells.`);
+      console.log('CSV processing result:', result);
+      setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} cells.`);
       setCsvDownloadUrl(`http://localhost:8000${result.filled_csv_url}`);
+      console.log('Set CSV download URL to:', `http://localhost:8000${result.filled_csv_url}`);
       if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.csv_filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
+        onFileHistoryUpdate({ filename: result.filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
       }
-      await uploadFileToGCS(file, 'filled', new Date().toISOString());
       if (csvInputRef.current) csvInputRef.current.value = '';
     } catch (err) {
       setCsvError(err instanceof Error ? err.message : 'CSV processing failed');
@@ -402,135 +327,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     if (csvInputRef.current) csvInputRef.current.value = '';
   };
 
-  // --- ADDED: modal helpers for choosing source ---
-  const openSourceModal = (useCase: 'analyze-template'|'process-template'|'analyze-csv'|'process-csv') => {
-    setSourceModalUseCase(useCase);
-    setSourceModalView('choose');
-    setSourceModalOpen(true);
-  };
-
-  const closeSourceModal = () => {
-    setSourceModalOpen(false);
-    setSourceModalUseCase(null);
-    setSourceModalView('choose');
-  };
-
-  const chooseDeviceForUseCase = (useCase: typeof sourceModalUseCase) => {
-    closeSourceModal();
-    setTimeout(() => {
-      if (useCase === 'analyze-template') fileInputRef.current?.click();
-      if (useCase === 'process-template') processInputRef.current?.click();
-      if (useCase === 'analyze-csv') csvAnalyzeInputRef.current?.click();
-      if (useCase === 'process-csv') csvInputRef.current?.click();
-    }, 50);
-  };
-
-  const chooseFavoritesForUseCase = (useCase: typeof sourceModalUseCase) => {
-    setSourceModalView('favorites');
-  };
-
-  const selectFavoriteAndUse = async (fav: FileHistoryItem) => {
-    // quick validation
-    if (!fav.filename && !fav.url) {
-      const msg = 'Selected favorite has no filename or URL.';
-      if (sourceModalUseCase && sourceModalUseCase.includes('csv')) setCsvError(msg);
-      else setError(msg);
-      return;
-    }
-
-    setFavProcessing(true);
-    setFavProcessingName(fav.filename || fav.url || null);
-    setFavError(null);
-    // Build candidate URLs: try backend URL (use BACKEND_BASE) first, then local_storage paths
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const candidates: string[] = [];
-
-    // If fav.url exists, try backend first (resolve against BACKEND_BASE)
-    if (fav.url) {
-      const backendUrl = fav.url.startsWith('http') ? fav.url : `${BACKEND_BASE}${fav.url}`;
-      candidates.push(backendUrl);
-      // also add a local_storage candidate using basename from fav.url (if any)
-      try {
-        const urlObj = new URL(fav.url, BACKEND_BASE);
-        const basename = urlObj.pathname.split('/').pop();
-        if (basename) {
-          candidates.push(`${origin}/local_storage/favorites_uploads/${encodeURIComponent(basename)}`);
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // also try the declared filename in local_storage (fallback)
-    if (fav.filename) {
-      candidates.push(`${origin}/local_storage/favorites_uploads/${encodeURIComponent(fav.filename)}`);
-    }
-    
-    // Try each candidate until one returns ok
-    let resp: Response | null = null;
-    let lastError: Error | null = null;
-    try {
-      for (const c of candidates) {
-        try {
-          // small debug log
-          // eslint-disable-next-line no-console
-          console.debug('[Favorites] trying candidate URL:', c);
-          resp = await fetch(c, { method: 'GET' });
-          if (resp && resp.ok) {
-            // eslint-disable-next-line no-console
-            console.debug('[Favorites] fetched OK from', c, 'status', resp.status);
-            break;
-          } else {
-            // eslint-disable-next-line no-console
-            console.debug('[Favorites] candidate failed', c, resp?.status);
-            resp = null;
-          }
-        } catch (fetchErr) {
-          lastError = fetchErr as Error;
-          // eslint-disable-next-line no-console
-          console.debug('[Favorites] fetch error for', c, fetchErr);
-          resp = null;
-        }
-      }
-
-      if (!resp) {
-        throw new Error(lastError?.message || 'Failed to retrieve favorite file from local storage or backend URL');
-      }
-
-      const blob = await resp.blob();
-      const fileName = fav.filename || resp.headers.get('x-filename') || (resp.url ? resp.url.split('/').pop() : null) || 'favorite-file';
-      const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
-
-      // call appropriate handler and only close modal on success
-      if (sourceModalUseCase === 'analyze-template') {
-        await analyzeTemplateFile(file);
-      } else if (sourceModalUseCase === 'process-template') {
-        await processTemplateFile(file);
-      } else if (sourceModalUseCase === 'analyze-csv') {
-        await analyzeCsvFile(file);
-      } else if (sourceModalUseCase === 'process-csv') {
-        await processCsvFile(file);
-      } else {
-        throw new Error('Unknown use case');
-      }
-
-      // success -> close modal
-      closeSourceModal();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to use favorite';
-      // show error inside modal so user sees it
-      setFavError(msg);
-      if (sourceModalUseCase && sourceModalUseCase.includes('csv')) setCsvError(msg);
-      else setError(msg);
-      // keep modal open so user can retry or click the download link
-      // eslint-disable-next-line no-console
-      console.error('[Favorites] selectFavoriteAndUse failed:', msg);
-    } finally {
-      setFavProcessing(false);
-      setFavProcessingName(null);
-    }
-  };
-
   // Helper to download filled template or csv
   const downloadTemplate = () => {
     if (!downloadUrl) return;
@@ -542,10 +338,24 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     a.remove();
   };
 
+  // Helper to download filled CSV
+  const downloadCsv = () => {
+    if (!csvDownloadUrl) {
+      console.log('No CSV download URL available');
+      return;
+    }
+    console.log('Downloading CSV from:', csvDownloadUrl);
+    const a = document.createElement('a');
+    a.href = csvDownloadUrl;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   // Small button style tokens used across this component for consistent UI
   const primaryBtn = 'px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50';
   const ghostBtn = 'px-4 py-2 border border-gray-300 rounded text-sm bg-white hover:bg-gray-50 disabled:opacity-50';
-  const smallGhost = 'px-3 py-1 border border-gray-200 rounded text-sm bg-white hover:bg-gray-50 disabled:opacity-50';
 
   return (
     <div className="space-y-6">
@@ -559,7 +369,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
             <input ref={fileInputRef} type="file" accept=".docx" onChange={handleAnalyzeTemplate} disabled={analyzing} className="hidden" />
             <label className="block text-sm font-medium text-gray-700 mb-2">Select Template to Analyze</label>
             <div className="flex gap-2">
-              <button onClick={() => openSourceModal('analyze-template')} disabled={analyzing} className={ghostBtn}>
+              <button onClick={() => fileInputRef.current?.click()} disabled={analyzing} className={ghostBtn}>
                 {analyzing ? 'Analyzing...' : 'Select File'}
               </button>
               <span className="text-xs text-gray-500 self-center">Only .docx files supported</span>
@@ -632,7 +442,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
                 <input ref={processInputRef} type="file" accept=".docx" onChange={handleProcessTemplate} disabled={processing} className="hidden" />
                 <label className="block text-sm font-medium text-gray-700 mb-2">Select Template to Process</label>
                 <div className="flex gap-2">
-                  <button onClick={() => openSourceModal('process-template')} disabled={processing} className={primaryBtn}>
+                  <button onClick={() => processInputRef.current?.click()} disabled={processing} className={primaryBtn}>
                     {processing ? 'Processing...' : 'Select File'}
                   </button>
                   <p className="text-xs text-gray-500 self-center">The template will be filled automatically</p>
@@ -711,13 +521,106 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
               Select CSV File to Analyze
             </label>
             <div className="flex gap-2">
-              <button onClick={() => openSourceModal('analyze-csv')} disabled={analyzingCsv} className={primaryBtn}>
+              <button onClick={() => csvAnalyzeInputRef.current?.click()} disabled={analyzingCsv} className={primaryBtn}>
                 {analyzingCsv ? 'Analyzing...' : 'Select File'}
               </button>
               <p className="text-xs text-gray-500 self-center">This will analyze your CSV structure and show which empty cells can be filled</p>
             </div>
           </div>
-          {/* ...existing CSV analyzing UI ... */}
+          
+          {csvError && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3">
+              <p className="text-sm text-red-600">{csvError}</p>
+            </div>
+          )}
+          
+          {csvAnalysis && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-4">
+              <h4 className="text-sm font-medium text-green-800 mb-3">CSV Analysis Results</h4>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">File:</span> {csvAnalysis.csv_filename}
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Rows:</span> {csvAnalysis.summary.total_rows}
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Columns:</span> {csvAnalysis.summary.total_columns}
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Empty Cells:</span> {csvAnalysis.summary.total_empty_cells}
+                  </div>
+                </div>
+                
+                <div className="bg-white rounded p-3 border">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-medium text-gray-700">Fillability:</span>
+                    <span className="text-lg font-semibold text-blue-600">
+                      {csvAnalysis.summary.fillable_cells}/{csvAnalysis.summary.total_empty_cells} cells
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full" 
+                      style={{ width: `${csvAnalysis.summary.total_empty_cells > 0 ? (csvAnalysis.summary.fillable_cells / csvAnalysis.summary.total_empty_cells) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {csvAnalysis.summary.total_empty_cells > 0 ? Math.round((csvAnalysis.summary.fillable_cells / csvAnalysis.summary.total_empty_cells) * 100) : 0}% of empty cells can be filled
+                  </p>
+                </div>
+                
+                {csvAnalysis.column_analysis && Object.keys(csvAnalysis.column_analysis).length > 0 && (
+                  <div>
+                    <h5 className="font-medium text-gray-700 mb-2">Column Analysis:</h5>
+                    <div className="space-y-2">
+                      {Object.entries(csvAnalysis.column_analysis).map(([column, data]) => (
+                        <div key={column} className="flex justify-between items-center p-2 bg-white rounded border text-sm">
+                          <span className="font-medium">{column}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-1 rounded text-xs ${data.fill_rate > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                              {data.fill_rate > 0 ? 'Fillable' : 'Cannot Fill'}
+                            </span>
+                            {data.fill_rate > 0 && (
+                              <>
+                                <span className="text-gray-600">
+                                  {Math.round(data.fill_rate * 100)}% fill rate
+                                </span>
+                                <span className="text-gray-600">
+                                  {Math.round(data.average_confidence * 100)}% confidence
+                                </span>
+                                <span className="text-gray-600">
+                                  {data.empty_cells_in_column} empty cells
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {csvAnalysis.recommendations && (
+                  <div className="bg-blue-50 rounded p-3 border">
+                    <h5 className="font-medium text-blue-800 mb-2">Recommendations:</h5>
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <span className="font-medium">High fillability:</span> {csvAnalysis.recommendations.high_fill_rate_columns.join(', ') || 'None'}
+                      </div>
+                      <div>
+                        <span className="font-medium">Low fillability:</span> {csvAnalysis.recommendations.low_fill_rate_columns.join(', ') || 'None'}
+                      </div>
+                      <div>
+                        <span className="font-medium">Processable columns:</span> {csvAnalysis.recommendations.total_processable} out of {csvAnalysis.summary.columns_with_empty_cells}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -737,13 +640,36 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
               Select CSV File to Process
             </label>
             <div className="flex gap-2">
-              <button onClick={() => openSourceModal('process-csv')} disabled={processingCsv} className={primaryBtn}>
+              <button onClick={() => csvInputRef.current?.click()} disabled={processingCsv} className={primaryBtn}>
                 {processingCsv ? 'Processing...' : 'Select File'}
               </button>
               <p className="text-xs text-gray-500 self-center">The CSV will be analyzed and empty cells filled with relevant data</p>
             </div>
           </div>
-          {/* ...existing CSV processing UI ... */}
+          
+          {csvError && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3">
+              <p className="text-sm text-red-600">{csvError}</p>
+            </div>
+          )}
+          
+          {csvSuccess && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3">
+              <p className="text-sm text-green-600">{csvSuccess}</p>
+              {csvDownloadUrl && (
+                <button onClick={downloadCsv} className={primaryBtn + ' mt-2'}>
+                  Download Filled CSV
+                </button>
+              )}
+            </div>
+          )}
+          
+          {processingCsv && (
+            <div className="flex items-center space-x-2 text-gray-700">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+              <span className="text-sm">Processing CSV...</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -769,88 +695,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           </div>
         </div>
       </div>
-
-      {/* --- ADDED: Modal for choosing source and favorites list --- */}
-      {sourceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-md max-w-2xl w-full p-6 card">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold">Choose Source</h4>
-              <button onClick={closeSourceModal} className="text-sm text-muted hover:text-gray-700">Close</button>
-            </div>
-
-            <div className="flex gap-3 mb-4">
-              <button
-                onClick={() => setSourceModalView('choose')}
-                className={`px-3 py-1 rounded text-sm ${sourceModalView === 'choose' ? 'bg-[var(--primary)] text-white' : 'btn-ghost'}`}
-              >
-                Upload from Device
-              </button>
-              <button
-                onClick={() => chooseFavoritesForUseCase(sourceModalUseCase!)}
-                className={`px-3 py-1 rounded text-sm ${sourceModalView === 'favorites' ? 'bg-[var(--primary)] text-white' : 'btn-ghost'}`}
-              >
-                Favorites
-              </button>
-              <button
-                onClick={() => chooseDeviceForUseCase(sourceModalUseCase!)}
-                className="ml-auto btn-ghost text-sm"
-              >
-                Choose Local Device File
-              </button>
-            </div>
-
-            {sourceModalView === 'choose' && (
-              <div className="text-sm text-muted">
-                <p>Select a file from your device (the file picker will open when you confirm).</p>
-              </div>
-            )}
-
-            {sourceModalView === 'favorites' && (
-              <div className="space-y-3">
-                {favLoading ? (
-                  <div className="text-sm text-muted">Loading favorites...</div>
-                ) : favorites.length === 0 ? (
-                  <div className="text-sm text-muted">No favorites available</div>
-                ) : (
-                  favorites.map((f) => (
-                    <div key={(f.timestamp || '') + f.filename} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-[var(--border)]">
-                      <div className="flex-1">
-                        <div className="font-medium truncate">{f.filename || (f.url ?? 'Unknown')}</div>
-                        <div className="text-xs text-muted">{new Date(f.timestamp).toLocaleString()}</div>
-                      </div>
-                      <div className="flex items-center gap-2 ml-4">
-                        <a href={f.url || '#'} target="_blank" rel="noreferrer" className="text-[var(--primary)] hover:underline text-sm">Download</a>
-                        <button
-                          onClick={() => selectFavoriteAndUse(f)}
-                          disabled={favProcessing}
-                          className="btn-primary text-sm"
-                        >
-                          {favProcessing && favProcessingName === f.filename ? 'Using...' : 'Use'}
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-                {favError && <div className="text-sm text-red-600">{favError}</div>}
-              </div>
-            )}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <button onClick={closeSourceModal} className="btn-ghost">Cancel</button>
-              <button
-                onClick={() => {
-                  // quick fallback: open device file picker for the chosen use case
-                  chooseDeviceForUseCase(sourceModalUseCase!);
-                }}
-                className="btn-primary"
-              >
-                Upload from device
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

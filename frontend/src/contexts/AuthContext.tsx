@@ -1,6 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { API_BASE_URL, API_CONFIG } from '@/config/api'; // use centralized config and timeout
 
 interface User {
   id: string;
@@ -26,6 +27,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // normalize backend base (use the exact env-driven API_BASE_URL)
+  const BACKEND_BASE = API_BASE_URL.replace(/\/$/, '');
+
+  // fetch helper with timeout to avoid infinite hanging requests
+  const fetchWithTimeout = async (input: RequestInfo, init?: RequestInit, timeout = API_CONFIG.TIMEOUT) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      return response;
+    } finally {
+      clearTimeout(id);
+    }
+  };
+
+  const verifyToken = useCallback(async (tokenToVerify: string) => {
+    try {
+      // Try fetching the current user directly (common endpoint)
+      const userResponse = await fetchWithTimeout(`${BACKEND_BASE}/api/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${tokenToVerify}`,
+        },
+      });
+
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        setUser(userData);
+      } else {
+        // Fallback: if /me is not present, try verify-token endpoint if available
+        try {
+          const verifyResp = await fetchWithTimeout(`${BACKEND_BASE}/api/auth/verify-token`, {
+            headers: { 'Authorization': `Bearer ${tokenToVerify}` },
+          });
+          if (!verifyResp.ok) {
+            localStorage.removeItem('auth_token');
+            setToken(null);
+            setUser(null);
+          }
+        } catch {
+          // If fallback also fails or times out, clear token
+          localStorage.removeItem('auth_token');
+          setToken(null);
+          setUser(null);
+        }
+      }
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      localStorage.removeItem('auth_token');
+      setToken(null);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [BACKEND_BASE]);
+
   // Check for stored token on component mount
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
@@ -35,41 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setIsLoading(false);
     }
-  }, []);
-
-  const verifyToken = async (tokenToVerify: string) => {
-    try {
-      const response = await fetch('http://localhost:8000/api/auth/verify-token', {
-        headers: {
-          'Authorization': `Bearer ${tokenToVerify}`,
-        },
-      });
-
-      if (response.ok) {
-        // Get user info
-        const userResponse = await fetch('http://localhost:8000/api/auth/me', {
-          headers: {
-            'Authorization': `Bearer ${tokenToVerify}`,
-          },
-        });
-
-        if (userResponse.ok) {
-          const userData = await userResponse.json();
-          setUser(userData);
-        }
-      } else {
-        // Token is invalid, remove it
-        localStorage.removeItem('auth_token');
-        setToken(null);
-      }
-    } catch (error) {
-      console.error('Token verification failed:', error);
-      localStorage.removeItem('auth_token');
-      setToken(null);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [verifyToken]);
 
   const login = async (email: string, password: string) => {
     try {

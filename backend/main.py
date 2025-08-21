@@ -106,10 +106,32 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Get CORS origins from environment variables
+def get_cors_origins():
+    origins = []
+    
+    # Add frontend URL from environment
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    origins.append(frontend_url)
+    
+    # Add development URLs if in development mode
+    if os.getenv("DEVELOPMENT_MODE", "false").lower() == "true":
+        dev_origins = [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001"
+        ]
+        for origin in dev_origins:
+            if origin not in origins:
+                origins.append(origin)
+    
+    return origins
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
