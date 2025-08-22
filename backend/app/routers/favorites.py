@@ -168,3 +168,56 @@ async def add_favorite(
     except Exception as e:
         logger.exception("Failed to add favorite")
         raise HTTPException(status_code=500, detail="Failed to add favorite")
+
+
+@router.delete("/{filename}")
+async def delete_favorite(filename: str):
+    """
+    Delete a favorite by filename
+    """
+    try:
+        items = await _load_index_from_gcs()
+        
+        # Find the item to delete
+        item_to_delete = None
+        updated_items = []
+        
+        for item in items:
+            if item.get("filename") == filename:
+                item_to_delete = item
+            else:
+                updated_items.append(item)
+        
+        if item_to_delete is None:
+            raise HTTPException(status_code=404, detail="Favorite not found")
+        
+        # If the item has a GCS URL, try to delete the file from GCS
+        if item_to_delete.get("url") and gcs_service.is_available():
+            try:
+                # Extract the blob name from the URL or construct it
+                # The blob name format is: fav_{timestamp}_{filename}
+                url = item_to_delete["url"]
+                if "fav_" in url:
+                    # Try to extract blob name from URL
+                    import re
+                    match = re.search(r'fav_\d+_[^?&/]*', url)
+                    if match:
+                        blob_name = match.group(0)
+                        gcs_service.delete_blob_from_bucket(blob_name, FAVORITES_GCS_BUCKET)
+                        logger.info(f"✅ Deleted favorite file from GCS bucket '{FAVORITES_GCS_BUCKET}': {blob_name}")
+            except Exception as delete_err:
+                logger.warning(f"Failed to delete favorite file from GCS: {delete_err}")
+        
+        # Save the updated index
+        ok = await _save_index_to_gcs(updated_items)
+        if not ok:
+            logger.warning("Failed to persist favorites index after deletion")
+        
+        logger.info(f"✅ Deleted favorite: {filename}")
+        return {"message": f"Favorite '{filename}' deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to delete favorite")
+        raise HTTPException(status_code=500, detail="Failed to delete favorite")

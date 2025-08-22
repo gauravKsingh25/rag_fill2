@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { FiDownload } from 'react-icons/fi';
+import { FiDownload, FiTrash2 } from 'react-icons/fi';
 import type { FileHistoryItem } from './FileHistory';
 import { API_BASE_URL } from '@/config/api';
 
@@ -70,6 +70,29 @@ export default function FavoritesSidebar() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  const deleteFavorite = async (filename: string) => {
+    if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/favorites/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Delete failed (${res.status})`);
+      }
+
+      // Remove from local state
+      setFavorites(prev => prev.filter(f => f.filename !== filename));
+    } catch (e) {
+      setError((e as Error).message || 'Delete failed');
+      console.error('Delete favorite failed', e);
+    }
+  };
+
   return (
     <div className="card p-4">
       <h3 className="text-lg font-semibold mb-1 text-gray-900">Favorites</h3>
@@ -104,6 +127,13 @@ export default function FavoritesSidebar() {
                   <a href={href} download className="download-btn" title={`Download ${f.filename}`}>
                     <FiDownload className="h-4 w-4" />
                   </a>
+                  <button 
+                    onClick={() => deleteFavorite(f.filename)} 
+                    className="delete-btn" 
+                    title={`Delete ${f.filename}`}
+                  >
+                    <FiTrash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             );

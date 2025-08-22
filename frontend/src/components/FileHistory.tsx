@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { FiDownload } from 'react-icons/fi';
+import { useState, useEffect, useCallback } from 'react';
+import { FiDownload, FiTrash2 } from 'react-icons/fi';
 
 export interface FileHistoryItem {
   filename: string;
@@ -17,13 +17,13 @@ interface FileHistoryProps {
 export default function FileHistory({ history }: FileHistoryProps) {
   const [remoteHistory, setRemoteHistory] = useState<FileHistoryItem[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
  
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
   const [apiBaseError, setApiBaseError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const loadFileHistory = useCallback(async () => {
     if (!API_BASE || API_BASE.trim() === '') {
       setApiBaseError('API base URL is not configured. Please set NEXT_PUBLIC_API_BASE in your environment.');
       setLoading(false);
@@ -31,20 +31,45 @@ export default function FileHistory({ history }: FileHistoryProps) {
     }
     setApiBaseError(null);
     setLoading(true);
-    fetch(`${API_BASE}/api/file-history/`)
-      .then(res => res.ok ? res.json() : [])
-      .then(items => {
-        if (mounted) setRemoteHistory(items as FileHistoryItem[]);
-      })
-      .catch(e => {
-        if (mounted) setRemoteHistory([]);
-        console.error('Failed to load file history', e);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-    return () => { mounted = false; };
+    try {
+      const res = await fetch(`${API_BASE}/api/file-history/`);
+      const items = res.ok ? await res.json() : [];
+      setRemoteHistory(items as FileHistoryItem[]);
+    } catch (e) {
+      setRemoteHistory([]);
+      console.error('Failed to load file history', e);
+    } finally {
+      setLoading(false);
+    }
   }, [API_BASE]);
+
+  useEffect(() => {
+    loadFileHistory();
+  }, [loadFileHistory]);
+
+  const deleteHistoryItem = async (filename: string) => {
+    if (!confirm(`Are you sure you want to delete "${filename}" from file history?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/file-history/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Delete failed (${res.status})`);
+      }
+
+      // Remove from local state
+      setRemoteHistory(prev => prev ? prev.filter(item => item.filename !== filename) : []);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message || 'Delete failed');
+      console.error('Delete file history item failed', e);
+    }
+  };
 
   const combinedHistory = remoteHistory ?? history;
 
@@ -56,6 +81,9 @@ export default function FileHistory({ history }: FileHistoryProps) {
           <div className="text-xs text-muted">Recent analyzed &amp; filled files · {combinedHistory?.length ?? 0}</div>
         </div>
       </div>
+      
+      {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
+      
       {apiBaseError ? (
         <div className="text-red-600 text-sm text-center py-8">{apiBaseError}</div>
       ) : (
@@ -96,6 +124,13 @@ export default function FileHistory({ history }: FileHistoryProps) {
                           <FiDownload className="h-4 w-4" />
                         </button>
                       )}
+                      <button 
+                        onClick={() => deleteHistoryItem(item.filename)} 
+                        className="delete-btn" 
+                        title={`Delete ${item.filename}`}
+                      >
+                        <FiTrash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DeviceSelector from '@/components/DeviceSelector';
 import ChatInterface from '@/components/ChatInterface';
 import DocumentUpload from '@/components/DocumentUpload';
@@ -12,6 +12,25 @@ export default function Home() {
 	const [selectedDevice, setSelectedDevice] = useState<string>('');
 	const [activeTab, setActiveTab] = useState<'chat' | 'upload' | 'template' | 'history'>('chat');
 	const [fileHistory, setFileHistory] = useState<FileHistoryItem[]>([]);
+
+	// Load file history when component mounts
+	useEffect(() => {
+		const loadFileHistory = async () => {
+			try {
+				const response = await fetch('http://localhost:8000/api/file-history/');
+				if (response.ok) {
+					const history = await response.json();
+					setFileHistory(history);
+					console.log('Loaded file history:', history);
+				} else {
+					console.error('Failed to load file history:', response.statusText);
+				}
+			} catch (error) {
+				console.error('Error loading file history:', error);
+			}
+		};
+		loadFileHistory();
+	}, []);
 
 	// Endpoint management state
 	const [endpointInput, setEndpointInput] = useState('');
@@ -276,7 +295,11 @@ export default function Home() {
 									<div className="flex-1">
 										<TemplateProcessor 
 											deviceId={selectedDevice}
-											onFileHistoryUpdate={(item: FileHistoryItem) => setFileHistory(prev => [item, ...prev])}
+											onFileHistoryUpdate={(item: FileHistoryItem) => {
+												console.log('Received file history update in page:', item);
+												setFileHistory(prev => [item, ...prev]);
+												console.log('Updated file history state');
+											}}
 										/>
 									</div>
 									<div className="w-72">

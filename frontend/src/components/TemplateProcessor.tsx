@@ -222,8 +222,13 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
       setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
+      console.log('Template processing result:', result);
+      console.log('Calling onFileHistoryUpdate with:', { filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
       if (onFileHistoryUpdate) {
         onFileHistoryUpdate({ filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
+        console.log('onFileHistoryUpdate called successfully for template');
+      } else {
+        console.log('onFileHistoryUpdate is not available for template');
       }
       if (processInputRef.current) processInputRef.current.value = '';
     } catch (err) {
@@ -287,8 +292,12 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} cells.`);
       setCsvDownloadUrl(`http://localhost:8000${result.filled_csv_url}`);
       console.log('Set CSV download URL to:', `http://localhost:8000${result.filled_csv_url}`);
+      console.log('Calling onFileHistoryUpdate with:', { filename: result.filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
       if (onFileHistoryUpdate) {
         onFileHistoryUpdate({ filename: result.filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
+        console.log('onFileHistoryUpdate called successfully for CSV');
+      } else {
+        console.log('onFileHistoryUpdate is not available for CSV');
       }
       if (csvInputRef.current) csvInputRef.current.value = '';
     } catch (err) {
@@ -511,7 +520,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           Analyze CSV
         </h3>
         <p className="text-sm text-gray-600 mb-4">
-          Upload a CSV file to see which empty cells can be filled with the available documents for Device {deviceId}.
+          Upload a CSV file to see which empty cells can be filled with the available documents for Device {deviceId}. <strong>Note:</strong> This only analyzes the file - use &quot;Process CSV&quot; below to actually fill the cells.
         </p>
         
         <div className="space-y-4">
@@ -630,7 +639,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           Process CSV
         </h3>
         <p className="text-sm text-gray-600 mb-4">
-          Upload a CSV file to automatically fill missing values with information from Device {deviceId}&apos;s documents.
+          Upload a CSV file to automatically fill missing values with information from Device {deviceId}&apos;s documents. <strong>This creates a new filled CSV file that you can download.</strong>
         </p>
         
         <div className="space-y-4">
@@ -689,9 +698,9 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           <div className="mt-4">
             <p className="font-semibold">CSV Processing:</p>
             <p><strong>1. Prepare CSV:</strong> Create a CSV file with headers and some empty cells that need to be filled.</p>
-            <p><strong>2. Upload CSV:</strong> Use the CSV processor to analyze and fill empty cells with relevant data.</p>
-            <p><strong>3. AI Enhancement:</strong> The system will intelligently match and populate missing information from your documents.</p>
-            <p><strong>4. Download Enhanced CSV:</strong> Get your completed CSV with all available fields filled.</p>
+            <p><strong>2. Analyze First (Optional):</strong> Use &quot;Analyze CSV&quot; to see which empty cells can be filled without creating a file.</p>
+            <p><strong>3. Process CSV:</strong> Use &quot;Process CSV&quot; to actually fill empty cells and create a new downloadable file.</p>
+            <p><strong>4. Download Enhanced CSV:</strong> Get your completed CSV with all available fields filled from the file history.</p>
           </div>
         </div>
       </div>

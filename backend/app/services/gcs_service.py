@@ -186,3 +186,20 @@ def generate_signed_url(blob_name: str, expires_seconds: int = 3600) -> str:
     # generate_signed_url may raise helpful auth errors; let caller handle
     url = blob.generate_signed_url(expiration=expiration)
     return url
+
+
+def delete_blob_from_bucket(blob_name: str, bucket_name: str) -> bool:
+    """Delete a blob from a specific GCS bucket."""
+    _ensure_client()
+    if not _client:
+        raise RuntimeError("GCS client not available")
+    
+    try:
+        target_bucket = _client.bucket(bucket_name)
+        blob = target_bucket.blob(blob_name)
+        blob.delete()
+        logger.info(f"Deleted blob from GCS bucket {bucket_name}: {blob_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete blob {blob_name} from bucket {bucket_name}: {e}")
+        raise

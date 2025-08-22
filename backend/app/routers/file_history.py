@@ -231,3 +231,61 @@ async def add_history_item(
     except Exception as e:
         logger.exception(f"Failed to add history item: {e}")
         raise HTTPException(status_code=500, detail="Failed to add history item")
+
+
+@router.delete("/{filename}")
+async def delete_history_item(filename: str):
+    """
+    Delete a file history item by filename
+    """
+    try:
+        items = await _load_index_from_gcs()
+        
+        # Find the item to delete
+        item_to_delete = None
+        updated_items = []
+        
+        for item in items:
+            if item.get("filename") == filename:
+                item_to_delete = item
+            else:
+                updated_items.append(item)
+        
+        if item_to_delete is None:
+            raise HTTPException(status_code=404, detail="File history item not found")
+        
+        # If the item has a GCS URL, try to delete the file from GCS
+        if item_to_delete.get("url") and gcs_service.is_available():
+            try:
+                # Extract the blob name from the URL
+                # The blob name format for file history is: processed_files/{timestamp}_{filename} or {timestamp}_{filename}
+                url = item_to_delete["url"]
+                if "storage.googleapis.com" in url:
+                    # Try to extract blob name from URL
+                    import re
+                    # Look for patterns like processed_files/timestamp_filename or timestamp_filename
+                    match = re.search(r'(?:processed_files/|filled_csv/|)(\d+_[^?&/]*)', url)
+                    if match:
+                        blob_name = match.group(0)  # This includes the folder prefix if present
+                        # Use the regular delete method since file history uses the default bucket
+                        gcs_service._ensure_client()
+                        if gcs_service._bucket:
+                            blob = gcs_service._bucket.blob(blob_name)
+                            blob.delete()
+                            logger.info(f"✅ Deleted file history file from GCS: {blob_name}")
+            except Exception as delete_err:
+                logger.warning(f"Failed to delete file history file from GCS: {delete_err}")
+        
+        # Save the updated index
+        ok = await _save_index_to_gcs(updated_items)
+        if not ok:
+            logger.warning("Failed to persist file history index after deletion")
+        
+        logger.info(f"✅ Deleted file history item: {filename}")
+        return {"message": f"File history item '{filename}' deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to delete file history item")
+        raise HTTPException(status_code=500, detail="Failed to delete file history item")
