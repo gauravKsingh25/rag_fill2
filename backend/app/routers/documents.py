@@ -21,8 +21,8 @@ async def upload_document(
         # Verify device exists
         await get_device(device_id)
         
-        # Validate file type
-        allowed_extensions = ['.pdf', '.docx', '.txt', '.md', '.csv']
+        # Validate file type - now includes image files for OCR
+        allowed_extensions = ['.pdf', '.docx', '.txt', '.md', '.csv', '.png', '.jpg', '.jpeg', '.tiff', '.bmp']
         file_extension = file.filename.split('.')[-1].lower()
         if f'.{file_extension}' not in allowed_extensions:
             raise HTTPException(
@@ -69,13 +69,38 @@ async def get_documents_by_device(device_id: str):
         # Verify device exists
         await get_device(device_id)
         
-        # Get documents from MongoDB
+        # Get documents from MongoDB with enhanced info
         documents = await document_repo.get_documents_by_device(device_id)
+        
+        # Enhance document info with processing details
+        enhanced_documents = []
+        for doc in documents:
+            enhanced_doc = {
+                **doc,
+                "processing_info": {
+                    "ocr_used": doc.get("processing_method", "").lower() in ["ocr", "enhanced_extraction"],
+                    "file_type": doc.get("file_type", "unknown"),
+                    "processing_method": doc.get("processing_method", "standard"),
+                    "text_length": doc.get("text_length", 0),
+                    "chunk_count": doc.get("chunk_count", 0)
+                },
+                "file_info": {
+                    "size_mb": round(doc.get("file_size", 0) / (1024 * 1024), 2),
+                    "is_image_based": doc.get("file_type", "").lower() in [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"]
+                }
+            }
+            enhanced_documents.append(enhanced_doc)
         
         return {
             "device_id": device_id,
-            "document_count": len(documents),
-            "documents": documents
+            "document_count": len(enhanced_documents),
+            "documents": enhanced_documents,
+            "summary": {
+                "total_documents": len(enhanced_documents),
+                "ocr_documents": len([d for d in enhanced_documents if d["processing_info"]["ocr_used"]]),
+                "total_chunks": sum(d.get("chunk_count", 0) for d in enhanced_documents),
+                "total_size_mb": round(sum(d.get("file_size", 0) for d in enhanced_documents) / (1024 * 1024), 2)
+            }
         }
         
     except HTTPException:
@@ -111,6 +136,8 @@ async def delete_document(document_id: str):
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
+        logger.info(f"🗑️ Deleting document {document_id} ({document.get('filename', 'unknown')}) from device {document.get('device_id', 'unknown')}")
+        
         # Delete document and all chunks
         success = await document_processor.delete_document(document_id, document["device_id"])
         
@@ -120,7 +147,9 @@ async def delete_document(document_id: str):
         return {
             "message": "Document deleted successfully",
             "document_id": document_id,
-            "device_id": document["device_id"]
+            "device_id": document["device_id"],
+            "filename": document.get("filename", "unknown"),
+            "chunks_deleted": document.get("chunk_count", 0)
         }
         
     except HTTPException:
@@ -128,6 +157,58 @@ async def delete_document(document_id: str):
     except Exception as e:
         logger.error(f"❌ Failed to delete document {document_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete document: {e}")
+
+@router.delete("/device/{device_id}/all")
+async def delete_all_documents_for_device(device_id: str):
+    """Delete all documents for a specific device"""
+    try:
+        # Verify device exists
+        await get_device(device_id)
+        
+        # Get all documents for this device
+        documents = await document_repo.get_documents_by_device(device_id)
+        
+        if not documents:
+            return {
+                "message": f"No documents found for device {device_id}",
+                "device_id": device_id,
+                "deleted_count": 0
+            }
+        
+        logger.info(f"🗑️ Deleting {len(documents)} documents for device {device_id}")
+        
+        deleted_count = 0
+        failed_deletions = []
+        
+        for document in documents:
+            try:
+                success = await document_processor.delete_document(
+                    document["document_id"], 
+                    device_id
+                )
+                if success:
+                    deleted_count += 1
+                    logger.info(f"✅ Deleted document {document['document_id']} ({document.get('filename', 'unknown')})")
+                else:
+                    failed_deletions.append(document["document_id"])
+                    logger.error(f"❌ Failed to delete document {document['document_id']}")
+            except Exception as e:
+                failed_deletions.append(document["document_id"])
+                logger.error(f"❌ Error deleting document {document['document_id']}: {e}")
+        
+        return {
+            "message": f"Deleted {deleted_count} documents for device {device_id}",
+            "device_id": device_id,
+            "deleted_count": deleted_count,
+            "total_documents": len(documents),
+            "failed_deletions": failed_deletions
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to delete all documents for device {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete documents: {e}")
 
 @router.put("/{document_id}/reprocess")
 async def reprocess_document(document_id: str):

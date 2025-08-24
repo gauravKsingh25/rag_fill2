@@ -78,9 +78,9 @@ export default function Home() {
 	};
 
 	// Add small helpers for tab button styling
-	const tabBtnBase = 'py-2 px-3 text-sm rounded-md transition inline-flex items-center gap-2';
-	const tabBtnActive = 'bg-gradient-to-r from-indigo-50 to-white text-indigo-700 shadow-sm ring-1 ring-indigo-100';
-	const tabBtnInactive = 'text-gray-500 hover:bg-gray-50 hover:text-gray-700';
+	// const tabBtnBase = 'py-2 px-3 text-sm rounded-md transition inline-flex items-center gap-2';
+	// const tabBtnActive = 'bg-gradient-to-r from-indigo-50 to-white text-indigo-700 shadow-sm ring-1 ring-indigo-100';
+	// const tabBtnInactive = 'text-gray-500 hover:bg-gray-50 hover:text-gray-700';
 
 	return (
 		<div className="min-h-screen bg-gradient-to-b from-gray-50 via-white to-gray-50">

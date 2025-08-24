@@ -6,7 +6,9 @@ from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
-from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history, favorites
+from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history, favorites, google_vision_ocr_management
+# OLD OCR ROUTERS - COMMENTED OUT FOR GOOGLE VISION MIGRATION
+# from app.routers import simple_ocr_management, ocr_management
 from app.database import connect_to_mongo, close_mongo_connection, user_repo
 from app.services.pinecone_service import pinecone_service
 from app.core.auth import get_password_hash
@@ -147,6 +149,10 @@ app.include_router(enhanced_csv_router.router, tags=["enhanced-csv"])
 app.include_router(robust_csv_router.router, tags=["robust-csv"])
 app.include_router(file_history.router, prefix="/api/file-history", tags=["file-history"])
 app.include_router(favorites.router)  # Include favorites router (router in favorites.py already defines its own prefix)
+app.include_router(google_vision_ocr_management.router, prefix="/api", tags=["google-vision-ocr"])
+# OLD OCR ROUTERS - COMMENTED OUT FOR GOOGLE VISION MIGRATION
+# app.include_router(simple_ocr_management.router, prefix="/api", tags=["ocr"])
+# app.include_router(ocr_management.router, prefix="/api", tags=["ocr-deprecated"])
 
 @app.get("/")
 async def root():

@@ -53,5 +53,16 @@
     "embedding_model": "models/embedding-001",
     "created_at": "2025-01-01T00:00:00Z",
     "is_active": true
+  },
+  {
+    "id": "DCX",
+    "name": "Medical Device X",
+    "description": "Advanced medical device for comprehensive template filling demonstrations",
+    "namespace": "device_dcx",
+    "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
+    "max_documents": 100,
+    "embedding_model": "models/embedding-001",
+    "created_at": "2025-01-22T00:00:00Z",
+    "is_active": true
   }
 ]

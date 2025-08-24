@@ -653,7 +653,7 @@ Return only a JSON list with exactly 5 comprehensive questions: ["question1", "q
         questions: List[str],
         device_id: str
     ) -> Optional[str]:
-        """Enhanced template field filling with comprehensive context analysis and extreme accuracy"""
+        """Enhanced template field filling with comprehensive context analysis, content generation, and grammar correction"""
         try:
             if not self.available:
                 # Enhanced fallback when API is not available
@@ -669,7 +669,54 @@ Return only a JSON list with exactly 5 comprehensive questions: ["question1", "q
             # Create specialized instructions based on field type
             field_instructions = self._get_field_instructions(field_type, field_name)
             
-            prompt = f"""You are an expert document analysis system specialized in extracting precise, factual information for template filling. Your task is to find the EXACT information for the field "{field_name}" from the comprehensive document context provided.
+            # ENHANCED: Determine if this field might need content generation vs exact extraction
+            needs_generation = self._field_needs_content_generation(field_name, field_context, field_type)
+            
+            if needs_generation:
+                prompt = f"""You are an expert technical writing assistant specialized in generating appropriate content for medical device documentation templates. Your task is to provide suitable content for the field "{field_name}" based on the available document context.
+
+Field to fill: "{field_name}"
+Field type: {field_type}
+Template context: {field_context}
+
+{field_instructions}
+
+COMPREHENSIVE SEARCH QUESTIONS USED:
+{questions_text}
+
+AVAILABLE DOCUMENT CONTEXT:
+{context_text}
+
+Device ID: {device_id}
+
+ENHANCED CONTENT GENERATION INSTRUCTIONS:
+1. 🔍 First, look for EXACT information that directly answers the field
+2. 📝 If exact information is found, extract and use it precisely
+3. 🎯 If exact information is NOT found, generate appropriate content based on:
+   - Related information in the documents
+   - Industry standards for medical device documentation
+   - Professional technical writing practices
+4. ✍️ When generating content, ensure it is:
+   - Professional and technically appropriate
+   - Consistent with medical device documentation standards
+   - Grammatically correct and well-written
+   - Appropriate length for the field context
+5. 🔧 ALWAYS check and correct grammar, spelling, and English usage
+6. 📏 Adjust content length based on field context:
+   - Short fields (names, numbers): Keep concise
+   - Description fields: Provide 1-2 comprehensive sentences
+   - Detailed fields: Provide appropriate level of detail
+7. 🚫 Return "NOT_FOUND" only if you cannot find any relevant information AND cannot generate appropriate content
+
+CONTENT GENERATION STRATEGIES:
+- For product descriptions: Use available technical specifications and intended use information
+- For risk assessments: Generate based on device type and available safety information
+- For clinical information: Base on available device specifications and intended use
+- For regulatory content: Use available device information to generate appropriate regulatory language
+
+GENERATE APPROPRIATE CONTENT (prioritize exact matches, then generate suitable content):"""
+            else:
+                prompt = f"""You are an expert document analysis system specialized in extracting precise, factual information for template filling. Your task is to find the EXACT information for the field "{field_name}" from the comprehensive document context provided.
 
 Field to fill: "{field_name}"
 Field type: {field_type}
@@ -696,6 +743,7 @@ CRITICAL ANALYSIS INSTRUCTIONS FOR MAXIMUM ACCURACY:
 8. 🚫 Return ONLY the field value - no explanations, prefixes, or additional context
 9. ❌ If you cannot find relevant information after thorough analysis, return "NOT_FOUND"
 10. 🎯 Be extremely precise and concise - extract the exact data needed
+11. 🔧 ALWAYS ensure proper grammar, spelling, and English usage in extracted content
 
 FIELD-SPECIFIC EXTRACTION RULES:
 - For NAME fields: Extract only the name itself (e.g., "Pulse Oximeter" not "Generic name: Pulse Oximeter")
@@ -711,8 +759,8 @@ EXTRACTED VALUE (based on comprehensive analysis):"""
             response = model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=200,
-                    temperature=0.01,  # ENHANCED: Extremely low temperature for maximum precision in document filling
+                    max_output_tokens=300 if needs_generation else 200,
+                    temperature=0.2 if needs_generation else 0.01,  # Higher temperature for generation, low for extraction
                 )
             )
             
@@ -720,6 +768,10 @@ EXTRACTED VALUE (based on comprehensive analysis):"""
             
             # Clean up the result based on field type
             result = self._clean_field_result(result, field_type, field_name)
+            
+            # ENHANCED: Apply grammar and spell check
+            if result and result != "NOT_FOUND":
+                result = await self._improve_grammar_and_spelling(result, field_type)
             
             return None if result == "NOT_FOUND" or not result else result
             
@@ -793,6 +845,120 @@ General field handling for "{field_name}":
         }
         
         return instructions.get(field_type, instructions["general"])
+    
+    def _field_needs_content_generation(self, field_name: str, field_context: str, field_type: str) -> bool:
+        """Determine if a field might need content generation vs exact extraction"""
+        try:
+            field_lower = field_name.lower()
+            context_lower = field_context.lower()
+            
+            # Fields that typically need content generation
+            generation_indicators = [
+                # Description fields
+                'description', 'summary', 'overview', 'background', 'purpose',
+                'intended use', 'indication', 'contraindication', 'warning',
+                'precaution', 'instruction', 'specification', 'feature',
+                
+                # Risk and safety fields  
+                'risk', 'safety', 'hazard', 'mitigation', 'control',
+                'assessment', 'analysis', 'evaluation',
+                
+                # Clinical and regulatory fields
+                'clinical', 'evidence', 'study', 'trial', 'performance',
+                'validation', 'verification', 'compliance', 'standard',
+                
+                # Technical content fields
+                'principle', 'mechanism', 'operation', 'function',
+                'characteristic', 'property', 'parameter',
+                
+                # Documentation fields that need elaboration
+                'justification', 'rationale', 'conclusion', 'recommendation',
+                'comment', 'note', 'remark', 'observation'
+            ]
+            
+            # Check if field name suggests content generation
+            for indicator in generation_indicators:
+                if indicator in field_lower:
+                    return True
+            
+            # Check context for generation needs
+            generation_context_indicators = [
+                'describe', 'explain', 'provide details', 'elaborate',
+                'discuss', 'outline', 'specify', 'identify',
+                'list', 'state', 'define', 'characterize'
+            ]
+            
+            for indicator in generation_context_indicators:
+                if indicator in context_lower:
+                    return True
+            
+            # Fields that are typically exact extraction
+            exact_extraction_types = [
+                'general_name', 'company_name', 'manufacturer', 'document_number',
+                'model_number', 'serial_number', 'date', 'signature', 'address',
+                'phone', 'email', 'general_number'
+            ]
+            
+            if field_type in exact_extraction_types:
+                return False
+            
+            # Default to generation for unknown field types with descriptive context
+            if len(field_context) > 100:  # Longer context suggests need for detailed content
+                return True
+                
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to determine content generation need: {e}")
+            return False
+    
+    async def _improve_grammar_and_spelling(self, text: str, field_type: str) -> str:
+        """Improve grammar, spelling, and English usage of the extracted/generated content"""
+        try:
+            if not self.available or not text or len(text.strip()) < 3:
+                return text
+            
+            # Skip grammar check for very short fields that are likely codes/numbers
+            if field_type in ['document_number', 'model_number', 'serial_number'] and len(text) < 20:
+                return text
+            
+            prompt = f"""Improve the grammar, spelling, and English usage of the following text while preserving its meaning and technical accuracy. This text is for a medical device documentation template.
+
+Original text: "{text}"
+
+Instructions:
+1. Correct any spelling errors
+2. Fix grammar mistakes
+3. Improve sentence structure and clarity
+4. Ensure professional technical writing style
+5. Maintain the original meaning and technical content
+6. Keep the same approximate length
+7. Ensure proper capitalization for medical device terminology
+8. Use clear, concise language appropriate for regulatory documentation
+
+Return only the improved text without any explanations or formatting:"""
+
+            model = genai.GenerativeModel(self.generation_model)
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=max(100, len(text) + 50),
+                    temperature=0.1,  # Low temperature for careful editing
+                )
+            )
+            
+            improved_text = response.text.strip()
+            
+            # Basic validation - if improvement seems wrong, return original
+            if len(improved_text) > len(text) * 2 or len(improved_text) < len(text) * 0.3:
+                logger.warning(f"Grammar improvement seems incorrect, keeping original: {text}")
+                return text
+            
+            return improved_text if improved_text else text
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to improve grammar: {e}")
+            return text
     
     def _clean_field_result(self, result: str, field_type: str, field_name: str) -> str:
         """Clean up the extracted field result based on field type"""

@@ -4,6 +4,7 @@ import json
 import aiofiles
 import csv
 import pandas as pd
+import asyncio
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import logging
@@ -42,6 +43,35 @@ from app.services.gemini_service import gemini_service
 from app.services.pinecone_service import pinecone_service
 from app.database import document_repo
 
+# OLD OCR SERVICE IMPORTS - COMMENTED OUT FOR GOOGLE VISION MIGRATION
+# Simple OCR Service Integration
+# try:
+#     from app.services.simple_ocr_service import simple_ocr_service
+#     OCR_AVAILABLE = simple_ocr_service.is_available()
+#     logger = logging.getLogger(__name__)
+#     if OCR_AVAILABLE:
+#         logger.info("✅ Simple OCR Service integrated successfully")
+#     else:
+#         logger.warning("⚠️ No OCR engines available")
+# except ImportError as e:
+#     OCR_AVAILABLE = False
+#     logger = logging.getLogger(__name__)
+#     logger.warning(f"⚠️ OCR Service not available: {e}")
+
+# NEW GOOGLE VISION OCR SERVICE
+try:
+    from app.services.google_vision_ocr_service import google_vision_ocr_service
+    OCR_AVAILABLE = google_vision_ocr_service.is_available()
+    logger = logging.getLogger(__name__)
+    if OCR_AVAILABLE:
+        logger.info("✅ Google Vision OCR Service integrated successfully")
+    else:
+        logger.warning("⚠️ Google Vision OCR not available")
+except ImportError as e:
+    OCR_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning(f"⚠️ Google Vision OCR Service not available: {e}")
+
 logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
@@ -52,6 +82,17 @@ class DocumentProcessor:
         self.chunk_size = 1500  # Increased for more context
         self.chunk_overlap = 400  # Increased overlap for better continuity
         self.min_chunk_size = 300  # Minimum viable chunk size
+        
+        # OCR Integration Configuration
+        self.ocr_enabled = OCR_AVAILABLE and os.getenv("OCR_ENABLED", "true").lower() == "true"
+        self.force_ocr = os.getenv("FORCE_OCR", "false").lower() == "true"
+        self.ocr_fallback_threshold = 100  # If text extraction yields < 100 chars, try OCR
+        self._last_ocr_metadata = None  # Temporary storage for OCR metadata
+        
+        if self.ocr_enabled:
+            logger.info("🔍 Google Vision OCR integration enabled - intelligent scanned document detection active")
+        else:
+            logger.info("📄 Google Vision OCR integration disabled - text-based documents only")
     
     async def process_uploaded_file(
         self, 
@@ -61,27 +102,76 @@ class DocumentProcessor:
     ) -> Dict[str, Any]:
         """Process uploaded file and store in vector database"""
         try:
+            total_start_time = asyncio.get_event_loop().time()
             logger.info(f"🚀 Starting to process document: {filename} for device: {device_id}")
+            logger.info(f"📊 File size: {len(file_content)} bytes")
             
             # Generate unique document ID
             document_id = str(uuid.uuid4())
             
-            # Extract text from file
+            # STEP 1: Extract text from file
+            logger.info("📄 STEP 1/5: Starting text extraction...")
+            text_start_time = asyncio.get_event_loop().time()
+            
             text_content = await self._extract_text(file_content, filename)
             if not text_content:
                 raise ValueError("Could not extract text from file")
             
-            # Create chunks
+            text_duration = asyncio.get_event_loop().time() - text_start_time
+            logger.info(f"✅ STEP 1 COMPLETE: Text extraction took {text_duration:.2f}s")
+            logger.info(f"📝 Extracted {len(text_content)} characters")
+            
+            # Add debug info for OCR results
+            if hasattr(self, '_last_ocr_metadata') and self._last_ocr_metadata:
+                logger.info(f"🔍 OCR was used: {self._last_ocr_metadata.get('ocr_required', False)}")
+                if self._last_ocr_metadata.get('total_processing_time'):
+                    logger.info(f"⏱️ OCR processing time: {self._last_ocr_metadata['total_processing_time']:.2f}s")
+            
+            # Show first 200 characters of extracted text for debugging
+            preview_text = text_content[:200].replace('\n', ' ').replace('\r', ' ')
+            logger.info(f"📄 Text preview: {preview_text}...")
+            
+            # Check if text seems to be from OCR (common patterns)
+            if any(pattern in text_content.lower() for pattern in ['[ocr_content]', 'scanned', 'image']):
+                logger.info("🔍 Text appears to be from OCR processing")
+            
+            # Count paragraphs/sections for chunking info
+            paragraph_count = len([p for p in text_content.split('\n\n') if p.strip()])
+            line_count = len([l for l in text_content.split('\n') if l.strip()])
+            logger.info(f"📊 Document structure: {paragraph_count} paragraphs, {line_count} lines")
+
+            # STEP 2: Create chunks
+            logger.info("📦 STEP 2/5: Starting chunking process...")
+            chunk_start_time = asyncio.get_event_loop().time()
+            
             chunks = self._create_chunks(text_content)
             if not chunks:
                 raise ValueError("No chunks were created from the document")
             
+            chunk_duration = asyncio.get_event_loop().time() - chunk_start_time
+            logger.info(f"✅ STEP 2 COMPLETE: Chunking took {chunk_duration:.2f}s")
             logger.info(f"📦 Created {len(chunks)} chunks from document")
+
+            # STEP 3: Generate embeddings and store in Pinecone
+            logger.info("🔗 STEP 3/5: Starting vector storage process...")
+            vector_start_time = asyncio.get_event_loop().time()
             
-            # Generate embeddings and store in Pinecone
-            await self._store_chunks_in_pinecone(chunks, document_id, device_id, filename)
-            
-            # Store metadata in MongoDB
+            try:
+                await asyncio.wait_for(
+                    self._store_chunks_in_pinecone(chunks, document_id, device_id, filename),
+                    timeout=120.0  # 2-minute timeout for entire vector storage process
+                )
+                
+                vector_duration = asyncio.get_event_loop().time() - vector_start_time
+                logger.info(f"✅ STEP 3 COMPLETE: Vector storage took {vector_duration:.2f}s")
+                
+            except asyncio.TimeoutError:
+                logger.error("❌ STEP 3 FAILED: Vector storage timed out after 2 minutes")
+                raise ValueError("Document processing timed out during vector storage. Please try with a smaller document or check network connectivity.")
+
+            # STEP 4: Store metadata in MongoDB
+            logger.info("💾 STEP 4/5: Storing document metadata...")
+            metadata_start_time = asyncio.get_event_loop().time()
             document_metadata = {
                 "document_id": document_id,
                 "filename": filename,
@@ -89,16 +179,46 @@ class DocumentProcessor:
                 "file_type": Path(filename).suffix.lower(),
                 "device_id": device_id,
                 "chunk_count": len(chunks),
-                "processed": True
+                "processed": True,
+                "processing_method": "enhanced_extraction",
+                "text_length": len(text_content),
+                "chunk_statistics": {
+                    "total_chunks": len(chunks),
+                    "avg_chunk_size": sum(len(chunk["content"]) for chunk in chunks) / len(chunks) if chunks else 0,
+                    "high_importance_chunks": sum(1 for chunk in chunks if chunk.get("importance_score", 0) > 0.7)
+                }
             }
+            
+            # Add OCR metadata if available
+            if hasattr(self, '_last_ocr_metadata') and self._last_ocr_metadata:
+                document_metadata["ocr_processing"] = self._last_ocr_metadata
+                # Clear the temporary metadata
+                self._last_ocr_metadata = None
             
             await document_repo.create_document(document_metadata)
             
-            # Save file to disk (optional, for backup)
+            metadata_duration = asyncio.get_event_loop().time() - metadata_start_time
+            logger.info(f"✅ STEP 4 COMPLETE: Metadata storage took {metadata_duration:.2f}s")
+            
+            # STEP 5: Save file to disk (optional, for backup)
+            logger.info("💾 STEP 5/5: Saving file backup...")
+            file_start_time = asyncio.get_event_loop().time()
+            
             file_path = self.upload_dir / f"{document_id}_{filename}"
             async with aiofiles.open(file_path, 'wb') as f:
                 await f.write(file_content)
             
+            file_duration = asyncio.get_event_loop().time() - file_start_time
+            total_duration = asyncio.get_event_loop().time() - total_start_time
+            
+            logger.info(f"✅ STEP 5 COMPLETE: File backup took {file_duration:.2f}s")
+            logger.info(f"🎉 PROCESSING COMPLETE: Total time {total_duration:.2f}s")
+            logger.info(f"📊 TIMING BREAKDOWN:")
+            logger.info(f"   📄 Text extraction: {text_duration:.2f}s")
+            logger.info(f"   📦 Chunking: {chunk_duration:.2f}s") 
+            logger.info(f"   🔗 Vector storage: {vector_duration:.2f}s")
+            logger.info(f"   💾 Metadata: {metadata_duration:.2f}s")
+            logger.info(f"   💾 File backup: {file_duration:.2f}s")
             logger.info(f"✅ Successfully processed document {filename} for device {device_id} - Created {len(chunks)} chunks")
             
             return {
@@ -114,7 +234,7 @@ class DocumentProcessor:
             raise
     
     async def _extract_text(self, file_content: bytes, filename: str) -> str:
-        """Extract text from different file types"""
+        """Extract text from different file types with intelligent OCR integration"""
         try:
             file_extension = Path(filename).suffix.lower()
             logger.info(f"📄 Extracting text from {filename} (type: {file_extension})")
@@ -125,7 +245,7 @@ class DocumentProcessor:
                 extracted_text = file_content.decode('utf-8')
             
             elif file_extension == '.pdf':
-                extracted_text = self._extract_text_from_pdf(file_content)
+                extracted_text = await self._extract_text_from_pdf_with_ocr(file_content, filename)
             
             elif file_extension == '.docx':
                 extracted_text = self._extract_text_from_docx(file_content)
@@ -135,6 +255,10 @@ class DocumentProcessor:
             
             elif file_extension == '.csv':
                 extracted_text = self._extract_text_from_csv(file_content)
+            
+            elif file_extension in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
+                # Image files - always use OCR
+                extracted_text = await self._extract_text_from_image(file_content, filename)
             
             else:
                 raise ValueError(f"Unsupported file type: {file_extension}")
@@ -192,10 +316,173 @@ class DocumentProcessor:
                 logger.warning("⚠️ Using partial text extraction result")
                 return self._clean_extracted_text(best_text)
             
-            raise ValueError("No readable text could be extracted from PDF using any method")
+            # Return empty string instead of raising exception to allow OCR fallback
+            logger.warning("⚠️ No readable text could be extracted using traditional methods - will try OCR")
+            return ""
             
         except Exception as e:
             logger.error(f"❌ Failed to extract text from PDF: {e}")
+            # Return empty string instead of re-raising to allow OCR fallback
+            return ""
+    
+    async def _extract_text_from_pdf_with_ocr(self, file_content: bytes, filename: str) -> str:
+        """
+        Intelligent PDF text extraction with OCR fallback
+        First tries traditional text extraction, then uses OCR for scanned documents
+        """
+        try:
+            extraction_start_time = asyncio.get_event_loop().time()
+            logger.info(f"🔍 Starting intelligent PDF processing for {filename}")
+            
+            # Step 1: Try traditional text extraction first
+            traditional_text = ""
+            traditional_start_time = asyncio.get_event_loop().time()
+            try:
+                traditional_text = self._extract_text_from_pdf(file_content)
+                text_length = len(traditional_text.strip())
+                
+                traditional_end_time = asyncio.get_event_loop().time()
+                traditional_duration = traditional_end_time - traditional_start_time
+                logger.info(f"📄 Traditional extraction took {traditional_duration:.2f}s, yielded {text_length} characters")
+                
+                # If we got substantial text, we're done
+                if text_length >= self.ocr_fallback_threshold:
+                    logger.info(f"✅ Sufficient text extracted traditionally - no OCR needed")
+                    return traditional_text
+                
+                # If we got some text but not much, it might be a mixed document
+                if text_length > 20:
+                    logger.info(f"⚠️ Limited text found ({text_length} chars) - checking if OCR can improve")
+                    
+                    if self.ocr_enabled and not self.force_ocr:
+                        # Try OCR and compare results
+                        try:
+                            logger.info("🔍 Starting Google Vision OCR comparison...")
+                            ocr_comparison_start = asyncio.get_event_loop().time()
+                            
+                            ocr_text, ocr_metadata = await google_vision_ocr_service.process_document(
+                                file_content, filename
+                            )
+                            
+                            ocr_comparison_end = asyncio.get_event_loop().time()
+                            ocr_comparison_duration = ocr_comparison_end - ocr_comparison_start
+                            logger.info(f"🔍 OCR comparison took {ocr_comparison_duration:.2f}s")
+                            
+                            # Store OCR metadata
+                            self._last_ocr_metadata = ocr_metadata
+                            
+                            if ocr_metadata.get('ocr_required', False):
+                                ocr_length = len(ocr_text.strip())
+                                logger.info(f"🔍 OCR yielded {ocr_length} additional characters")
+                                
+                                # If OCR extracted significantly more content, use it
+                                if ocr_length > text_length * 1.5:
+                                    logger.info("✅ OCR extracted significantly more content - using OCR result")
+                                    return ocr_text
+                                elif ocr_length > 100:
+                                    # Combine traditional text with OCR text
+                                    logger.info("🔄 Combining traditional text with OCR results")
+                                    combined_text = f"{traditional_text}\n\n[OCR_EXTRACTED_CONTENT]\n{ocr_text}"
+                                    return combined_text
+                        except Exception as ocr_error:
+                            logger.warning(f"⚠️ OCR fallback failed: {ocr_error}")
+                    
+                    # Return traditional text if OCR didn't help
+                    return traditional_text
+                
+            except Exception as traditional_error:
+                logger.warning(f"⚠️ Traditional PDF extraction failed: {traditional_error}")
+                # Don't re-raise - continue to OCR fallback
+                traditional_text = ""
+            
+            # Step 2: Traditional extraction failed or yielded minimal text - try OCR
+            if not self.ocr_enabled:
+                logger.error("❌ PDF appears to be scanned but Google Vision OCR is disabled")
+                raise ValueError("Document appears to be scanned/image-based but Google Vision OCR is not available")
+            
+            logger.info("🔍 Traditional extraction insufficient - attempting OCR processing")
+            
+            try:
+                # Use Google Vision OCR processing with timeout protection
+                logger.info("⏰ Starting Google Vision OCR processing with 5-minute timeout...")
+                ocr_start_time = asyncio.get_event_loop().time()
+                
+                ocr_text, ocr_metadata = await asyncio.wait_for(
+                    google_vision_ocr_service.process_document(file_content, filename),
+                    timeout=300.0  # 5-minute timeout for entire OCR process
+                )
+                
+                ocr_end_time = asyncio.get_event_loop().time()
+                ocr_duration = ocr_end_time - ocr_start_time
+                logger.info(f"✅ OCR processing completed in {ocr_duration:.2f}s")
+                
+                # Store OCR metadata for later use in document metadata
+                self._last_ocr_metadata = ocr_metadata
+                
+                if not ocr_metadata.get('ocr_required', False):
+                    logger.warning("⚠️ Google Vision OCR service determined no OCR needed, but traditional extraction failed")
+                    return "[DOCUMENT_PROCESSED] This document appears to contain scanned content but could not be processed with Google Vision OCR. Please verify the document quality and try again."
+                
+                ocr_length = len(ocr_text.strip())
+                logger.info(f"✅ Google Vision OCR extraction completed - {ocr_length} characters extracted")
+                
+                # Log Google Vision OCR processing details
+                if 'ocr_result' in ocr_metadata:
+                    ocr_result = ocr_metadata['ocr_result']
+                    logger.info(f"📊 Google Vision OCR Details: Method={ocr_result.get('method_used', 'google_vision')}, "
+                               f"Confidence={ocr_result.get('confidence', 0):.2f}, "
+                               f"Pages={ocr_result.get('page_count', 1)}, "
+                               f"Time={ocr_result.get('processing_time', 0):.2f}s")
+                
+                if ocr_length < 20:
+                    logger.warning("⚠️ OCR extraction yielded minimal text")
+                    # Still return what we got rather than failing
+                    return ocr_text or "[DOCUMENT_PROCESSED] This document was processed but minimal text was extracted. The document may be primarily images or very low quality scans."
+                
+                return ocr_text
+                
+            except asyncio.TimeoutError:
+                logger.error("❌ Google Vision OCR processing timed out after 5 minutes")
+                # Return empty string to prevent error message chunks
+                raise ValueError("Document processing timed out during Google Vision OCR. This document may be too large or complex for processing.")
+            
+            except Exception as ocr_error:
+                logger.error(f"❌ Google Vision OCR processing failed: {ocr_error}")
+                return "[DOCUMENT_PROCESSED] This document could not be processed due to Google Vision OCR errors. Please verify the document format and quality."
+            
+        except Exception as e:
+            logger.error(f"❌ Intelligent PDF processing failed for {filename}: {e}")
+            raise
+            raise
+    
+    async def _extract_text_from_image(self, file_content: bytes, filename: str) -> str:
+        """Extract text from image files using OCR"""
+        try:
+            if not self.ocr_enabled:
+                raise ValueError("Image files require Google Vision OCR but OCR is disabled")
+            
+            logger.info(f"🖼️ Processing image file {filename} with Google Vision OCR")
+            
+            # Use Google Vision OCR service to process the image
+            ocr_text, ocr_metadata = await google_vision_ocr_service.process_document(
+                file_content, filename
+            )
+            
+            # Store OCR metadata for later use
+            self._last_ocr_metadata = ocr_metadata
+            
+            text_length = len(ocr_text.strip())
+            logger.info(f"✅ OCR extracted {text_length} characters from image {filename}")
+            
+            # Log Google Vision OCR processing details
+            if ocr_metadata:
+                logger.info(f"📊 Google Vision OCR Details: Method={ocr_metadata.get('method', 'google_vision')}, "
+                           f"Time={ocr_metadata.get('total_processing_time', 0):.2f}s")
+            
+            return ocr_text
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to extract text from image {filename}: {e}")
             raise
     
     def _extract_with_pdfplumber(self, pdf_file: BytesIO) -> str:
@@ -764,11 +1051,82 @@ class DocumentProcessor:
             text_length = len(cleaned_text)
             
             logger.info(f"📊 Creating chunks from text of length {text_length} characters")
-            logger.info(f"🔧 Chunk size: {self.chunk_size}, overlap: {self.chunk_overlap}")
+            
+            # SMART CHUNKING: Adjust parameters based on document length
+            if text_length <= 1000:
+                # Small documents: create fewer, larger chunks
+                chunk_size = max(text_length // 2, 300)  # At most 2 chunks
+                overlap = min(chunk_size // 4, 100)  # 25% overlap max
+                logger.info(f"� Small document detected - using optimized chunking")
+            elif text_length <= 5000:
+                # Medium documents: moderate chunking
+                chunk_size = 1000
+                overlap = 200
+                logger.info(f"📄 Medium document detected - using moderate chunking")
+            else:
+                # Large documents: standard chunking
+                chunk_size = self.chunk_size
+                overlap = self.chunk_overlap
+                logger.info(f"📚 Large document detected - using standard chunking")
+            
+            logger.info(f"🔧 Chunk size: {chunk_size}, overlap: {overlap}")
+            
+            # If text is very small, still try to create meaningful chunks
+            if text_length <= 500:
+                logger.info("📄 Small document - creating optimized chunks")
+                # Even for small documents, try to create multiple chunks if there are clear separators
+                paragraphs = self._split_by_paragraphs(cleaned_text)
+                if len(paragraphs) > 1:
+                    logger.info(f"📄 Small document has {len(paragraphs)} paragraphs - creating multiple chunks")
+                    chunks = []
+                    for i, paragraph in enumerate(paragraphs):
+                        if paragraph.strip():
+                            chunk_data = {
+                                "chunk_id": f"chunk_{i}",
+                                "content": paragraph.strip(),
+                                "start_index": 0,
+                                "end_index": len(paragraph.strip()),
+                                "word_count": len(paragraph.strip().split()),
+                                "content_type": self._classify_content_type(paragraph.strip()),
+                                "has_structured_data": self._contains_structured_data(paragraph.strip()),
+                                "contains_fields": self._contains_form_fields(paragraph.strip()),
+                                "importance_score": 0.8,
+                                "entity_density": self._calculate_entity_density(paragraph.strip()),
+                                "information_richness": self._calculate_information_richness(paragraph.strip()),
+                                "semantic_keywords": self._extract_semantic_keywords(paragraph.strip()),
+                                "position_info": {"relative_position": i / len(paragraphs), "section": f"paragraph_{i}"},
+                                "coverage_info": {"covers_start": i == 0, "covers_end": i == len(paragraphs) - 1}
+                            }
+                            chunks.append(chunk_data)
+                    
+                    if chunks:
+                        logger.info(f"✅ Created {len(chunks)} chunks from small document with paragraphs")
+                        return chunks
+                
+                # Fallback to single chunk for very small content
+                chunk_data = {
+                    "chunk_id": "chunk_0",
+                    "content": cleaned_text,
+                    "start_index": 0,
+                    "end_index": len(cleaned_text),
+                    "word_count": len(cleaned_text.split()),
+                    "content_type": self._classify_content_type(cleaned_text),
+                    "has_structured_data": self._contains_structured_data(cleaned_text),
+                    "contains_fields": self._contains_form_fields(cleaned_text),
+                    "importance_score": 0.8,  # Higher score for single chunk
+                    "entity_density": self._calculate_entity_density(cleaned_text),
+                    "information_richness": self._calculate_information_richness(cleaned_text),
+                    "semantic_keywords": self._extract_semantic_keywords(cleaned_text),
+                    "position_info": {"relative_position": 0.0, "section": "single"},
+                    "coverage_info": {"covers_start": True, "covers_end": True}
+                }
+                
+                logger.info(f"✅ Created 1 optimized chunk from small document")
+                return [chunk_data]
             
             # ENHANCED: Create comprehensive chunks with improved coverage
             while start < text_length:
-                end = min(start + self.chunk_size, text_length)
+                end = min(start + chunk_size, text_length)
                 
                 # Find the best boundary for splitting
                 chunk_text, actual_end = self._find_optimal_chunk_boundary(
@@ -819,7 +1177,7 @@ class DocumentProcessor:
                 if next_start <= start:
                     # If overlap calculation fails, advance by at least chunk_size - overlap
                     # This ensures we make meaningful progress
-                    min_advance = max(self.chunk_size - self.chunk_overlap, 200)
+                    min_advance = max(chunk_size - overlap, 200)
                     next_start = start + min_advance
                 else:
                     start = next_start
@@ -1113,11 +1471,30 @@ class DocumentProcessor:
             
             for i, chunk in enumerate(chunks):
                 try:
+                    logger.info(f"🔄 Processing chunk {i+1}/{len(chunks)}")
+                    
                     # Prepare text for embedding (clean version)
                     embedding_text = self._prepare_text_for_embedding(chunk["content"])
                     
-                    # Generate embedding for cleaned chunk
-                    embedding = await gemini_service.get_embedding(embedding_text)
+                    # Generate embedding for cleaned chunk with timeout
+                    logger.debug(f"📡 Generating embedding for chunk {i+1}...")
+                    start_time = asyncio.get_event_loop().time()
+                    
+                    try:
+                        embedding = await asyncio.wait_for(
+                            gemini_service.get_embedding(embedding_text),
+                            timeout=10.0  # 10-second timeout per embedding
+                        )
+                        
+                        embed_time = asyncio.get_event_loop().time() - start_time
+                        logger.debug(f"✅ Embedding generated in {embed_time:.2f}s for chunk {i+1}")
+                        
+                    except asyncio.TimeoutError:
+                        logger.warning(f"⏰ Embedding generation timed out for chunk {i+1}, using fallback")
+                        embedding = self._generate_fallback_embedding(embedding_text)
+                    except Exception as embed_error:
+                        logger.warning(f"❌ Embedding generation failed for chunk {i+1}: {embed_error}, using fallback")
+                        embedding = self._generate_fallback_embedding(embedding_text)
                     
                     # Create enhanced metadata
                     metadata = {
@@ -1622,6 +1999,226 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"❌ Failed to delete document {document_id}: {e}")
             return False
+    
+    def _generate_fallback_embedding(self, text: str) -> List[float]:
+        """Generate a simple hash-based embedding as fallback when Gemini API fails"""
+        try:
+            import hashlib
+            import numpy as np
+            
+            # Create a deterministic embedding based on text hash
+            text_hash = hashlib.md5(text.encode()).hexdigest()
+            
+            # Convert hash to a 1024-dimensional vector (to match Pinecone index)
+            # Split the hash into chunks and create a repeatable pattern
+            hash_chunks = [text_hash[i:i+8] for i in range(0, len(text_hash), 8)]
+            
+            # Create embedding vector
+            embedding = []
+            for i in range(1024):
+                # Use different parts of the hash to create variety
+                chunk_idx = i % len(hash_chunks)
+                char_idx = i % len(hash_chunks[chunk_idx])
+                
+                # Convert hex character to float between -1 and 1
+                hex_val = int(hash_chunks[chunk_idx][char_idx], 16)
+                normalized_val = (hex_val - 7.5) / 7.5  # Normalize to [-1, 1]
+                embedding.append(normalized_val)
+            
+            # Add some text-based features
+            text_len_factor = min(len(text) / 1000.0, 1.0)  # Normalize text length
+            word_count_factor = min(len(text.split()) / 100.0, 1.0)  # Normalize word count
+            
+            # Adjust first few dimensions based on text characteristics
+            embedding[0] = text_len_factor
+            embedding[1] = word_count_factor
+            embedding[2] = 1.0 if any(char.isdigit() for char in text) else -1.0
+            embedding[3] = 1.0 if any(char.isupper() for char in text) else -1.0
+            
+            logger.debug(f"📊 Generated fallback embedding with {len(embedding)} dimensions")
+            return embedding
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate fallback embedding: {e}")
+            # Return zero vector as last resort
+            return [0.0] * 1024
+
+    def _split_by_paragraphs(self, text: str) -> List[str]:
+        """Split text into paragraphs for better chunking"""
+        try:
+            # Split by double newlines first (paragraphs)
+            paragraphs = text.split('\n\n')
+            
+            # If no double newlines, try single newlines
+            if len(paragraphs) <= 1:
+                paragraphs = text.split('\n')
+            
+            # Filter out empty paragraphs and very short ones
+            filtered_paragraphs = []
+            for para in paragraphs:
+                para = para.strip()
+                if para and len(para) > 20:  # Must have at least 20 characters
+                    filtered_paragraphs.append(para)
+            
+            return filtered_paragraphs
+            
+        except Exception as e:
+            logger.warning(f"Failed to split by paragraphs: {e}")
+            return [text]
+
+    def _classify_content_type(self, text: str) -> str:
+        """
+        Classify the type of content based on text patterns
+        """
+        try:
+            text_lower = text.lower()
+            
+            # Check for structured data patterns
+            if any(keyword in text_lower for keyword in ['name:', 'model:', 'serial:', 'part number:', 'specifications:']):
+                return "device_specification"
+            elif any(keyword in text_lower for keyword in ['patient:', 'doctor:', 'diagnosis:', 'treatment:', 'medication:']):
+                return "medical_record"
+            elif any(keyword in text_lower for keyword in ['invoice', 'receipt', 'payment', 'total:', 'amount:']):
+                return "financial_document"
+            elif any(keyword in text_lower for keyword in ['manual', 'instructions', 'how to', 'step', 'procedure']):
+                return "instruction_manual"
+            elif text.count('\n') > 20 and '|' in text:
+                return "tabular_data"
+            elif text.count(':') > 5:
+                return "structured_list"
+            else:
+                return "general_document"
+                
+        except Exception as e:
+            logger.warning(f"Failed to classify content type: {e}")
+            return "general_document"
+    
+    def _contains_structured_data(self, text: str) -> bool:
+        """
+        Check if text contains structured data patterns
+        """
+        try:
+            # Look for common structured patterns
+            patterns = [
+                r'\w+:\s*\w+',  # key:value pairs
+                r'\|\s*\w+\s*\|',  # table columns
+                r'^\s*\d+\.\s+',  # numbered lists
+                r'^\s*-\s+',  # bullet points
+                r'\w+\s*=\s*\w+',  # assignments
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, text, re.MULTILINE):
+                    return True
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    def _contains_form_fields(self, text: str) -> bool:
+        """
+        Check if text contains form field patterns
+        """
+        try:
+            form_indicators = [
+                'name:', 'email:', 'phone:', 'address:', 'date:',
+                'model number:', 'serial number:', 'part number:',
+                'manufacturer:', 'description:', 'specifications:',
+                '___', '[    ]', '______'  # Common form field patterns
+            ]
+            
+            text_lower = text.lower()
+            form_field_count = sum(1 for indicator in form_indicators if indicator in text_lower)
+            
+            return form_field_count >= 2
+            
+        except Exception:
+            return False
+    
+    def _calculate_entity_density(self, text: str) -> float:
+        """
+        Calculate the density of named entities in the text
+        """
+        try:
+            words = text.split()
+            if not words:
+                return 0.0
+            
+            # Simple heuristic for entity detection
+            entity_patterns = [
+                r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*',  # Proper nouns
+                r'\b[A-Z]{2,}\b',  # Acronyms
+                r'\b\d+(?:\.\d+)?\s*[A-Za-z]+\b',  # Numbers with units
+                r'\b[A-Z]\d+[A-Z]?\d*\b',  # Model numbers
+            ]
+            
+            entity_count = 0
+            for pattern in entity_patterns:
+                entity_count += len(re.findall(pattern, text))
+            
+            return min(entity_count / len(words), 1.0)
+            
+        except Exception:
+            return 0.0
+    
+    def _calculate_information_richness(self, text: str) -> float:
+        """
+        Calculate information richness score based on vocabulary diversity and structure
+        """
+        try:
+            if not text:
+                return 0.0
+            
+            words = text.split()
+            if len(words) < 5:
+                return 0.5
+            
+            # Calculate vocabulary diversity
+            unique_words = set(word.lower() for word in words)
+            diversity_score = len(unique_words) / len(words)
+            
+            # Bonus for structured content
+            structure_bonus = 0.1 if self._contains_structured_data(text) else 0.0
+            
+            # Bonus for technical terms
+            technical_terms = ['specification', 'model', 'serial', 'device', 'system', 'component']
+            technical_bonus = 0.1 if any(term in text.lower() for term in technical_terms) else 0.0
+            
+            richness_score = diversity_score + structure_bonus + technical_bonus
+            return min(richness_score, 1.0)
+            
+        except Exception:
+            return 0.5
+    
+    def _extract_semantic_keywords(self, text: str) -> list:
+        """
+        Extract semantic keywords from text
+        """
+        try:
+            if not text:
+                return []
+            
+            # Simple keyword extraction based on frequency and importance
+            words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+            
+            # Common stop words to filter out
+            stop_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use'}
+            
+            # Count word frequencies
+            word_freq = {}
+            for word in words:
+                if word not in stop_words and len(word) > 2:
+                    word_freq[word] = word_freq.get(word, 0) + 1
+            
+            # Get top keywords
+            sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+            keywords = [word for word, freq in sorted_words[:10] if freq > 1]
+            
+            return keywords[:5]  # Return top 5 keywords
+            
+        except Exception:
+            return []
 
 # Global instance
 document_processor = DocumentProcessor()
