@@ -65,6 +65,31 @@ export interface UploadResponse {
   missing_fields?: string[];
 }
 
+export interface DocumentReverseResponse {
+  status: string;
+  message: string;
+  device_id: string;
+  original_file: string;
+  template_filename: string;
+  download_url: string;
+  processing_details: {
+    original_format: string;
+    output_format: string;
+    ocr_used: boolean;
+    text_length: number;
+    template_length: number;
+    ocr_metadata?: any;
+  };
+}
+
+export interface SupportedFormatsResponse {
+  supported_input_formats: string[];
+  output_format: string;
+  description: Record<string, string>;
+  max_file_size_mb: number;
+  features: string[];
+}
+
 const API_BASE_URL = BASE_URL;
 
 export const apiEndpoints = {
@@ -95,6 +120,11 @@ export const apiEndpoints = {
   csv: {
     process: () => `${API_BASE_URL}/api/csv/process`,
     download: (filename: string) => `${API_BASE_URL}/api/csv/download/${filename}`,
+  },
+  documentReverse: {
+    createBlankTemplate: () => `${API_BASE_URL}/api/document-reverse/create-blank-template`,
+    download: (filename: string) => `${API_BASE_URL}/api/document-reverse/download/${filename}`,
+    supportedFormats: () => `${API_BASE_URL}/api/document-reverse/supported-formats`,
   },
 } as const;
 
@@ -287,4 +317,11 @@ export const templateApi = {
 export const csvApi = {
   process: (file: File, deviceId: string) =>
     uploadFile<UploadResponse>(apiEndpoints.csv.process(), file, { device_id: deviceId }),
+};
+
+export const documentReverseApi = {
+  createBlankTemplate: (file: File, deviceId: string) =>
+    uploadFile<DocumentReverseResponse>(apiEndpoints.documentReverse.createBlankTemplate(), file, { device_id: deviceId }),
+  getSupportedFormats: () =>
+    apiRequest<SupportedFormatsResponse>(apiEndpoints.documentReverse.supportedFormats()),
 };

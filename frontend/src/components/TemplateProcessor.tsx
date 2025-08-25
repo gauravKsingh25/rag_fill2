@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { templateApi, csvApi, ApiError } from '@/lib/api';
+import { templateApi, csvApi, documentReverseApi, ApiError } from '@/lib/api';
 
 
 import { FileHistoryItem } from './FileHistory';
@@ -81,7 +81,15 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const processInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const csvAnalyzeInputRef = useRef<HTMLInputElement>(null);
+  const reverseInputRef = useRef<HTMLInputElement>(null);
   const activeIntervalsRef = useRef<NodeJS.Timeout[]>([]);
+
+  // Document Reverse Processing state
+  const [reverseProcessing, setReverseProcessing] = useState(false);
+  const [reverseError, setReverseError] = useState<string | null>(null);
+  const [reverseSuccess, setReverseSuccess] = useState<string | null>(null);
+  const [reverseDownloadUrl, setReverseDownloadUrl] = useState<string | null>(null);
+  const [supportedFormats, setSupportedFormats] = useState<string[]>([]);
 
   // Progress simulation during template processing
   useEffect(() => {
@@ -307,6 +315,52 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     }
   }
 
+  // Document Reverse Processing function
+  async function processFilledDocumentToBlank(file: File) {
+    if (!file) return;
+    
+    const allowedExtensions = ['.pdf', '.docx', '.doc'];
+    const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+    
+    if (!allowedExtensions.includes(fileExtension)) {
+      setReverseError(`Unsupported file type: ${fileExtension}. Supported formats: ${allowedExtensions.join(', ')}`);
+      return;
+    }
+    
+    setReverseProcessing(true);
+    setReverseError(null);
+    setReverseSuccess(null);
+    setReverseDownloadUrl(null);
+    
+    try {
+      console.log('Processing filled document to blank template:', file.name);
+      const result = await documentReverseApi.createBlankTemplate(file, deviceId);
+      
+      setReverseSuccess(`✅ Successfully created blank template from ${file.name}`);
+      setReverseDownloadUrl(result.download_url);
+      
+      console.log('Document reverse processing result:', result);
+      
+      // Add to file history if callback is available
+      if (onFileHistoryUpdate) {
+        onFileHistoryUpdate({
+          filename: result.template_filename,
+          type: 'filled', // Using 'filled' type as it's the closest available
+          url: `http://localhost:8000${result.download_url}`,
+          timestamp: new Date().toISOString()
+        });
+        console.log('Added blank template to file history');
+      }
+      
+      if (reverseInputRef.current) reverseInputRef.current.value = '';
+    } catch (err) {
+      console.error('Document reverse processing error:', err);
+      setReverseError(err instanceof Error ? err.message : 'Document reverse processing failed');
+    } finally {
+      setReverseProcessing(false);
+    }
+  }
+
   // --- REPLACE existing input handlers with wrappers that call the helpers ---
   const handleAnalyzeTemplate = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -336,6 +390,13 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     if (csvInputRef.current) csvInputRef.current.value = '';
   };
 
+  const handleReverseProcessing = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await processFilledDocumentToBlank(file);
+    if (reverseInputRef.current) reverseInputRef.current.value = '';
+  };
+
   // Helper to download filled template or csv
   const downloadTemplate = () => {
     if (!downloadUrl) return;
@@ -356,6 +417,21 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     console.log('Downloading CSV from:', csvDownloadUrl);
     const a = document.createElement('a');
     a.href = csvDownloadUrl;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  // Helper to download blank template
+  const downloadBlankTemplate = () => {
+    if (!reverseDownloadUrl) {
+      console.log('No blank template download URL available');
+      return;
+    }
+    console.log('Downloading blank template from:', reverseDownloadUrl);
+    const a = document.createElement('a');
+    a.href = `http://localhost:8000${reverseDownloadUrl}`;
     a.download = '';
     document.body.appendChild(a);
     a.click();
@@ -682,10 +758,87 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
         </div>
       </div>
 
+      {/* Document Reverse Processing Section */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Create Blank Template
+        </h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Upload a <strong>filled document</strong> (PDF or Word) to automatically create a blank template. 
+          PDFs will be processed using OCR and converted to Word format. Answers will be removed and replaced with blank fields.
+        </p>
+        
+        <div className="space-y-4">
+          <div>
+            <input 
+              ref={reverseInputRef} 
+              type="file" 
+              accept=".pdf,.docx,.doc" 
+              onChange={handleReverseProcessing} 
+              disabled={reverseProcessing} 
+              className="hidden" 
+            />
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Filled Document to Convert
+            </label>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => reverseInputRef.current?.click()} 
+                disabled={reverseProcessing} 
+                className={primaryBtn}
+              >
+                {reverseProcessing ? 'Processing...' : 'Select Filled Document'}
+              </button>
+              <span className="text-xs text-gray-500 self-center">
+                Supports PDF (with OCR), Word documents (.docx, .doc)
+              </span>
+            </div>
+          </div>
+          
+          {reverseError && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3">
+              <p className="text-sm text-red-600">{reverseError}</p>
+            </div>
+          )}
+          
+          {reverseSuccess && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3">
+              <p className="text-sm text-green-600">{reverseSuccess}</p>
+              {reverseDownloadUrl && (
+                <button onClick={downloadBlankTemplate} className={primaryBtn + ' mt-2'}>
+                  Download Blank Template
+                </button>
+              )}
+            </div>
+          )}
+          
+          {reverseProcessing && (
+            <div className="flex items-center space-x-2 text-gray-700">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+              <span className="text-sm">
+                {reverseProcessing ? 'Creating blank template...' : 'Processing...'}
+              </span>
+            </div>
+          )}
+
+          {/* Feature Details */}
+          <div className="bg-gray-50 rounded-md p-4">
+            <h4 className="text-sm font-semibold text-gray-900 mb-2">How it works:</h4>
+            <ul className="text-xs text-gray-600 space-y-1">
+              <li>• <strong>PDF files:</strong> Uses advanced OCR to extract text, then creates blank template in Word format</li>
+              <li>• <strong>Word files:</strong> Analyzes content and removes answers while preserving question structure</li>
+              <li>• <strong>Smart detection:</strong> Automatically identifies form fields, labels, and answers</li>
+              <li>• <strong>Structure preservation:</strong> Maintains original document layout and formatting</li>
+              <li>• <strong>Word output:</strong> All blank templates are saved as editable Word documents</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* Instructions */}
       <div className="bg-blue-50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-2">
-          How to Use Templates & CSV Processing
+          How to Use Templates, CSV Processing & Document Reverse
         </h3>
         <div className="text-sm text-blue-800 space-y-2">
           <div>
@@ -701,6 +854,13 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
             <p><strong>2. Analyze First (Optional):</strong> Use &quot;Analyze CSV&quot; to see which empty cells can be filled without creating a file.</p>
             <p><strong>3. Process CSV:</strong> Use &quot;Process CSV&quot; to actually fill empty cells and create a new downloadable file.</p>
             <p><strong>4. Download Enhanced CSV:</strong> Get your completed CSV with all available fields filled from the file history.</p>
+          </div>
+          <div className="mt-4">
+            <p className="font-semibold">Create Blank Template (NEW):</p>
+            <p><strong>1. Upload Filled Document:</strong> Upload a PDF or Word document that already has answers filled in.</p>
+            <p><strong>2. Automatic Processing:</strong> The system will use OCR (for PDFs) or direct text extraction (for Word) to analyze the content.</p>
+            <p><strong>3. Smart Field Detection:</strong> Automatically identifies questions and answers, then removes answers while keeping questions.</p>
+            <p><strong>4. Download Blank Template:</strong> Get a clean Word document template ready for reuse with blank fields for answers.</p>
           </div>
         </div>
       </div>
