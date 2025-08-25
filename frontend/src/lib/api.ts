@@ -78,7 +78,7 @@ export interface DocumentReverseResponse {
     ocr_used: boolean;
     text_length: number;
     template_length: number;
-    ocr_metadata?: any;
+    ocr_metadata?: unknown;
   };
 }
 
