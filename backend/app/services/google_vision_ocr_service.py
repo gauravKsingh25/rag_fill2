@@ -8,6 +8,7 @@ import io
 import logging
 import time
 import asyncio
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from PIL import Image
@@ -255,7 +256,8 @@ class GoogleVisionOCRService:
             
             doc.close()
             
-            combined_text = "\n\n".join(text_parts)
+            # Enhanced page combining that preserves table structure
+            combined_text = self._combine_pages_preserving_structure(text_parts)
             avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
             
             return combined_text, {
@@ -420,6 +422,60 @@ class GoogleVisionOCRService:
                 logger.error("🔧 FIX: Enable Google Vision API and wait 5-10 minutes")
                 
             raise Exception(f"Google Vision OCR failed: {error_msg}")
+    
+    def _combine_pages_preserving_structure(self, text_parts: List[str]) -> str:
+        """Combine pages while preserving table and form structure"""
+        try:
+            if not text_parts:
+                return ""
+            
+            combined_lines = []
+            
+            for i, page_text in enumerate(text_parts):
+                page_lines = page_text.split('\n')
+                
+                # Check if this page continues a table from previous page
+                if i > 0 and combined_lines:
+                    last_line = combined_lines[-1].strip() if combined_lines else ""
+                    first_line = page_lines[0].strip() if page_lines else ""
+                    
+                    # If both lines look like table rows, merge without extra spacing
+                    if (self._looks_like_table_row(last_line) and 
+                        self._looks_like_table_row(first_line)):
+                        # Continue table without page break spacing
+                        combined_lines.extend(page_lines)
+                        continue
+                
+                # Add page break spacing for non-table content
+                if i > 0:
+                    combined_lines.append("")  # Single line break instead of double
+                
+                combined_lines.extend(page_lines)
+            
+            return '\n'.join(combined_lines)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Page combining failed, using simple join: {e}")
+            return "\n\n".join(text_parts)
+    
+    def _looks_like_table_row(self, line: str) -> bool:
+        """Quick check if a line looks like a table row"""
+        if not line.strip():
+            return False
+        
+        # Check for common table separators
+        separators = ['|', '\t']
+        for sep in separators:
+            if line.count(sep) >= 1:
+                parts = [p.strip() for p in line.split(sep) if p.strip()]
+                if len(parts) >= 2:
+                    return True
+        
+        # Check for spaced columns (multiple spaces)
+        if re.search(r'\w+\s{2,}\w+', line):
+            return True
+            
+        return False
     
     async def get_detailed_document_analysis(self, file_content: bytes) -> Dict[str, Any]:
         """Get detailed document analysis using Google Vision Document AI"""

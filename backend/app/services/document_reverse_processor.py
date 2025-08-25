@@ -55,9 +55,11 @@ class DocumentReverseProcessor:
         self.config = {
             'min_field_confidence': 0.7,
             'min_data_confidence': 0.6,
-            'table_detection_sensitivity': 0.8,
+            'table_detection_sensitivity': 0.7,  # Lowered for better detection
             'structure_preservation': True,
-            'exact_formatting_preservation': True
+            'exact_formatting_preservation': True,
+            'page_break_tolerance': 2,  # Allow up to 2 empty lines between table rows
+            'enhanced_table_detection': True
         }
         
         logger.info("🧠 Intelligent Document Reverse Processor initialized - No manual word lists!")
@@ -210,7 +212,7 @@ class DocumentReverseProcessor:
             return {'structure': {}, 'fields': [], 'data_types': {}, 'confidence': 0.0}
     
     def _detect_structure_patterns(self, text: str) -> Dict[str, Any]:
-        """🏗️ Detect document structure using pattern recognition"""
+        """🏗️ Enhanced structure detection with improved table handling"""
         try:
             lines = text.split('\n')
             structure = {
@@ -221,25 +223,37 @@ class DocumentReverseProcessor:
             }
             
             current_table = None
+            previous_empty_lines = 0
             
             for i, line in enumerate(lines):
                 line = line.strip()
+                
+                # Track empty lines (potential page breaks)
                 if not line:
+                    previous_empty_lines += 1
                     continue
                 
-                # 🔍 Dynamic table detection
+                # 🔍 Enhanced table detection with page break tolerance
                 if self._is_likely_table_row(line, lines, i):
-                    if current_table is None:
+                    # If we have a small gap (1-2 empty lines), continue existing table
+                    if current_table is None or previous_empty_lines > 2:
+                        if current_table:
+                            current_table['end'] = i - previous_empty_lines - 1
+                            structure['tables'].append(current_table)
                         current_table = {'start': i, 'rows': [], 'columns': 0}
                     
                     row_data = self._extract_table_columns(line)
                     current_table['rows'].append(row_data)
                     current_table['columns'] = max(current_table['columns'], len(row_data))
                 else:
-                    if current_table:
+                    # Non-table content, close current table if exists
+                    if current_table and previous_empty_lines <= 1:  # Allow single line break
                         current_table['end'] = i - 1
                         structure['tables'].append(current_table)
                         current_table = None
+                
+                # Reset empty line counter
+                previous_empty_lines = 0
                 
                 # 📋 Dynamic header detection
                 if self._is_likely_header(line, lines, i):
@@ -262,6 +276,8 @@ class DocumentReverseProcessor:
                 current_table['end'] = len(lines) - 1
                 structure['tables'].append(current_table)
             
+            logger.info(f"📊 Detected {len(structure['tables'])} tables, {len(structure['headers'])} headers")
+            
             return structure
             
         except Exception as e:
@@ -269,7 +285,7 @@ class DocumentReverseProcessor:
             return {}
     
     def _is_likely_table_row(self, line: str, lines: List[str], index: int) -> bool:
-        """🔍 Intelligent table row detection"""
+        """🔍 Intelligent table row detection with page break awareness"""
         try:
             # Multiple separator indicators
             separators = ['|', '\t', '  ', ':', ';']
@@ -281,20 +297,30 @@ class DocumentReverseProcessor:
                     if len(parts) >= 2:
                         table_score = max(table_score, 0.8 if sep == '|' else 0.6)
             
-            # Context analysis (neighboring lines)
+            # Enhanced context analysis (skip empty lines from page breaks)
             context_score = 0.0
-            for offset in [-1, 1]:
+            for offset in [-3, -2, -1, 1, 2, 3]:  # Extended range to handle page breaks
                 if 0 <= index + offset < len(lines):
                     neighbor = lines[index + offset].strip()
+                    if not neighbor:  # Skip empty lines (page breaks)
+                        continue
                     for sep in separators:
                         if sep in neighbor and len(neighbor.split(sep)) > 1:
-                            context_score += 0.2
+                            context_score += 0.15  # Reduced weight for distant context
             
             # Special table markers
             if line.count('|') >= 2:
                 table_score = max(table_score, 0.9)
             
-            final_score = table_score + (context_score * 0.5)
+            # Enhanced table pattern detection
+            if re.search(r'\b\w+\s*:\s*\w+', line):  # Key-value patterns
+                table_score = max(table_score, 0.7)
+            
+            # Structured numeric/date patterns
+            if re.search(r'\d+[\.\-\/]\d+[\.\-\/]\d+', line):  # Date patterns
+                table_score = max(table_score, 0.6)
+            
+            final_score = table_score + (context_score * 0.3)  # Reduced context weight
             return final_score >= self.config['table_detection_sensitivity']
             
         except Exception as e:
