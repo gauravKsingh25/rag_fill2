@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { templateApi, csvApi, documentReverseApi, ApiError } from '@/lib/api';
+import { documentReverseApi } from '@/lib/api';
 
 
 import { FileHistoryItem } from './FileHistory';
@@ -77,6 +77,9 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const [progressStage, setProgressStage] = useState('');
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [startTime, setStartTime] = useState<number | null>(null);
+  
+  // RAG Filling Mode State
+  const [fillingMode, setFillingMode] = useState<'general' | 'accurate'>('general');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -89,7 +92,6 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
   const [reverseError, setReverseError] = useState<string | null>(null);
   const [reverseSuccess, setReverseSuccess] = useState<string | null>(null);
   const [reverseDownloadUrl, setReverseDownloadUrl] = useState<string | null>(null);
-  const [supportedFormats, setSupportedFormats] = useState<string[]>([]);
 
   // Progress simulation during template processing
   useEffect(() => {
@@ -216,6 +218,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
+      formData.append('filling_mode', fillingMode);
       setProgress(5);
       setProgressStage('Uploading template...');
       const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', { method: 'POST', body: formData });
@@ -228,7 +231,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const result = await response.json();
       setProgress(100);
       setProgressStage('Template processing completed!');
-      setSuccess(`Template processed successfully! Filled ${Object.keys(result.filled_fields).length} fields.`);
+      setSuccess(`Template processed successfully using ${fillingMode} mode! Filled ${Object.keys(result.filled_fields).length} fields.`);
       setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
       console.log('Template processing result:', result);
       console.log('Calling onFileHistoryUpdate with:', { filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
@@ -290,6 +293,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
+      formData.append('filling_mode', fillingMode);
       const response = await fetch('http://localhost:8000/api/templates/upload-and-fill-csv', { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
@@ -297,7 +301,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       }
       const result = await response.json();
       console.log('CSV processing result:', result);
-      setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} cells.`);
+      setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} cells using ${fillingMode} mode.`);
       setCsvDownloadUrl(`http://localhost:8000${result.filled_csv_url}`);
       console.log('Set CSV download URL to:', `http://localhost:8000${result.filled_csv_url}`);
       console.log('Calling onFileHistoryUpdate with:', { filename: result.filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
@@ -444,6 +448,59 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
 
   return (
     <div className="space-y-6">
+      {/* RAG Filling Mode Toggle */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-sm border border-blue-200 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-gray-900 mb-1">RAG Filling Mode</h3>
+            <p className="text-xs text-gray-600">
+              Choose how documents should be filled: 
+              <span className="font-medium text-blue-600"> General</span> mode includes descriptions and interpretive content, 
+              <span className="font-medium text-purple-600"> Accurate</span> mode uses only exact matches from the knowledge base.
+            </p>
+          </div>
+          <div className="ml-4">
+            <div className="flex items-center bg-white rounded-lg border border-gray-200 p-1">
+              <button
+                onClick={() => setFillingMode('general')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  fillingMode === 'general'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                }`}
+              >
+                📝 General
+              </button>
+              <button
+                onClick={() => setFillingMode('accurate')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  fillingMode === 'accurate'
+                    ? 'bg-purple-500 text-white shadow-sm'
+                    : 'text-gray-600 hover:text-purple-600 hover:bg-purple-50'
+                }`}
+              >
+                🎯 Accurate
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Mode Description */}
+        <div className="mt-3 p-2 bg-white rounded border-l-4 border-l-blue-400">
+          {fillingMode === 'general' ? (
+            <p className="text-xs text-gray-700">
+              <span className="font-medium text-blue-600">General Mode:</span> Fills documents with accurate data plus contextual descriptions. 
+              Suitable for most documents where additional explanatory content enhances readability.
+            </p>
+          ) : (
+            <p className="text-xs text-gray-700">
+              <span className="font-medium text-purple-600">Accurate Mode:</span> Uses only exact values from the knowledge base with no interpretations. 
+              Ideal for sensitive forms, regulatory documents, or when precise data integrity is critical.
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* Template Analysis Section */}
       <div className="bg-white rounded-lg shadow-sm border p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Analyze Template</h3>
@@ -841,6 +898,11 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
           How to Use Templates, CSV Processing & Document Reverse
         </h3>
         <div className="text-sm text-blue-800 space-y-2">
+          <div className="bg-white rounded p-3 border-l-4 border-blue-400 mb-4">
+            <p className="font-semibold text-blue-900 mb-1">📝 RAG Filling Modes:</p>
+            <p><strong>General Mode:</strong> Provides accurate data with descriptive context for better readability. Best for most documents.</p>
+            <p><strong>Accurate Mode:</strong> Uses only exact values from knowledge base without interpretation. Ideal for regulatory forms and sensitive documents.</p>
+          </div>
           <div>
             <p className="font-semibold">Template Processing:</p>
             <p><strong>1. Create Template:</strong> Use Word to create a .docx template with placeholders like {`{name}`}, {`{date}`}, {`{amount}`}, etc.</p>

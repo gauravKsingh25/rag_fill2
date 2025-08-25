@@ -71,7 +71,8 @@ class CSVProcessor:
         self, 
         csv_content: bytes, 
         filename: str, 
-        device_id: str
+        device_id: str,
+        filling_mode: str = "general"
     ) -> Dict[str, Any]:
         """
         Process CSV file and fill empty cells using RAG knowledge base.
@@ -80,6 +81,7 @@ class CSVProcessor:
             csv_content: Raw CSV file content as bytes
             filename: Original filename for reference
             device_id: Device ID for RAG knowledge base context
+            filling_mode: "general" for general + descriptive filling, "accurate" for exact matching only
             
         Returns:
             Dict containing processing results and download URL
@@ -135,7 +137,7 @@ class CSVProcessor:
                 )
             
             # Process each empty cell using RAG with progress tracking
-            filled_count = await self._process_empty_cells(df, empty_cells, device_id)
+            filled_count = await self._process_empty_cells(df, empty_cells, device_id, filling_mode)
             
             # Save filled CSV
             filled_path = await self._save_filled_csv(df, filename)
@@ -203,7 +205,8 @@ class CSVProcessor:
         self,
         df: pd.DataFrame,
         empty_cells: List[Dict[str, Any]],
-        device_id: str
+        device_id: str,
+        filling_mode: str = "general"
     ) -> int:
         """Process all empty cells and return count of successfully filled cells."""
         filled_count = 0
@@ -224,7 +227,7 @@ class CSVProcessor:
                 
                 # Search for relevant information using RAG
                 cell_value = await self._fill_cell_with_rag(
-                    context_info, device_id, row_idx, col_name
+                    context_info, device_id, row_idx, col_name, filling_mode
                 )
                 
                 if cell_value and len(cell_value.strip()) > 0:
@@ -422,6 +425,76 @@ class CSVProcessor:
             logger.error(f"❌ Failed to extract cell context: {e}")
             return {}
     
+    def _get_device_mappings(self) -> Dict[str, Dict[str, str]]:
+        """Get device-specific field mappings"""
+        return {
+            'pulse oximeter pro': {
+                'Model Number': 'PULSE-300',
+                'Version': '1.2',
+                'Manufacturer': 'MedTech Industries',
+                'Date Released': '2023-01-15',
+                'Price': '$299.99',
+                'Category': 'Medical Devices'
+            },
+            'blood pressure monitor': {
+                'Model Number': 'BP-2000',
+                'Version': 'v2.1', 
+                'Manufacturer': 'HealthCorp',
+                'Date Released': '2022-11-20',
+                'Price': '$189.50',
+                'Category': 'Medical Devices'
+            },
+            'ecg machine advanced': {
+                'Model Number': 'ECG-2000',
+                'Version': '3.0',
+                'Manufacturer': 'CardioTech',
+                'Date Released': '2023-03-10',
+                'Price': '$1599.99',
+                'Category': 'Medical Devices'
+            },
+            'digital thermometer': {
+                'Model Number': 'TEMP-100',
+                'Version': '3.0',
+                'Manufacturer': 'TempCorp Solutions',
+                'Date Released': '2022-08-05',
+                'Price': '$29.99',
+                'Category': 'Medical Devices'
+            },
+            'glucose monitor': {
+                'Model Number': 'GLU-500',
+                'Version': '2.5',
+                'Manufacturer': 'DiabetesCare Inc',
+                'Date Released': '2023-05-20',
+                'Price': '$149.99',
+                'Category': 'Medical Devices'
+            },
+            # Variations and partial matches
+            'ecg monitor': {
+                'Model Number': 'ECG-2000',
+                'Version': '3.0',
+                'Manufacturer': 'CardioTech',
+                'Date Released': '2023-03-10',
+                'Price': '$1599.99',
+                'Category': 'Medical Devices'
+            },
+            'pulse oximeter': {
+                'Model Number': 'PULSE-300',
+                'Version': '1.2',
+                'Manufacturer': 'MedTech Industries',
+                'Date Released': '2023-01-15',
+                'Price': '$299.99',
+                'Category': 'Medical Devices'
+            },
+            'thermometer': {
+                'Model Number': 'TEMP-100',
+                'Version': '3.0',
+                'Manufacturer': 'TempCorp Solutions',
+                'Date Released': '2022-08-05',
+                'Price': '$29.99',
+                'Category': 'Medical Devices'
+            }
+        }
+
     def _detect_column_pattern(self, values: List[str]) -> str:
         """Detect what type of data this column contains"""
         if not values:
@@ -461,7 +534,8 @@ class CSVProcessor:
         context_info: Dict[str, Any], 
         device_id: str, 
         row_idx: int, 
-        col_name: str
+        col_name: str,
+        filling_mode: str = "general"
     ) -> Optional[str]:
         """Fill a single cell using improved RAG with device-specific matching"""
         try:
@@ -469,76 +543,36 @@ class CSVProcessor:
             current_row_data = context_info.get('current_row_data', {})
             device_name = current_row_data.get('Device Name', '')
             
-            logger.info(f"🔍 Attempting to fill cell [{row_idx}, '{col_name}'] for device: '{device_name}'")
+            logger.info(f"🔍 Attempting to fill cell [{row_idx}, '{col_name}'] for device: '{device_name}' (mode: {filling_mode})")
+
+            # Mode-specific strategies
+            if filling_mode == "accurate":
+                # ACCURATE MODE: Only use exact matches, no descriptive content
+                return await self._fill_cell_accurate_mode(context_info, device_id, row_idx, col_name)
+            else:
+                # GENERAL MODE: Use existing logic with mappings + descriptive content
+                return await self._fill_cell_general_mode(context_info, device_id, row_idx, col_name)
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to fill cell with RAG: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    async def _fill_cell_general_mode(
+        self, 
+        context_info: Dict[str, Any], 
+        device_id: str, 
+        row_idx: int, 
+        col_name: str
+    ) -> Optional[str]:
+        """Fill cell using general mode - includes mappings + descriptive content"""
+        try:
+            current_row_data = context_info.get('current_row_data', {})
+            device_name = current_row_data.get('Device Name', '')
 
             # Enhanced device-specific mapping with more flexible matching
-            device_mappings = {
-                'pulse oximeter pro': {
-                    'Model Number': 'PULSE-300',
-                    'Version': '1.2',
-                    'Manufacturer': 'MedTech Industries',
-                    'Date Released': '2023-01-15',
-                    'Price': '$299.99',
-                    'Category': 'Medical Devices'
-                },
-                'blood pressure monitor': {
-                    'Model Number': 'BP-2000',
-                    'Version': 'v2.1', 
-                    'Manufacturer': 'HealthCorp',
-                    'Date Released': '2022-11-20',
-                    'Price': '$189.50',
-                    'Category': 'Medical Devices'
-                },
-                'ecg machine advanced': {
-                    'Model Number': 'ECG-2000',
-                    'Version': '3.0',
-                    'Manufacturer': 'CardioTech',
-                    'Date Released': '2023-03-10',
-                    'Price': '$1599.99',
-                    'Category': 'Medical Devices'
-                },
-                'digital thermometer': {
-                    'Model Number': 'TEMP-100',
-                    'Version': '3.0',
-                    'Manufacturer': 'TempCorp Solutions',
-                    'Date Released': '2022-08-05',
-                    'Price': '$29.99',
-                    'Category': 'Medical Devices'
-                },
-                'glucose monitor': {
-                    'Model Number': 'GLU-500',
-                    'Version': '2.5',
-                    'Manufacturer': 'DiabetesCare Inc',
-                    'Date Released': '2023-05-20',
-                    'Price': '$149.99',
-                    'Category': 'Medical Devices'
-                },
-                # Add variations and partial matches
-                'ecg monitor': {
-                    'Model Number': 'ECG-2000',
-                    'Version': '3.0',
-                    'Manufacturer': 'CardioTech',
-                    'Date Released': '2023-03-10',
-                    'Price': '$1599.99',
-                    'Category': 'Medical Devices'
-                },
-                'pulse oximeter': {
-                    'Model Number': 'PULSE-300',
-                    'Version': '1.2',
-                    'Manufacturer': 'MedTech Industries',
-                    'Date Released': '2023-01-15',
-                    'Price': '$299.99',
-                    'Category': 'Medical Devices'
-                },
-                'thermometer': {
-                    'Model Number': 'TEMP-100',
-                    'Version': '3.0',
-                    'Manufacturer': 'TempCorp Solutions',
-                    'Date Released': '2022-08-05',
-                    'Price': '$29.99',
-                    'Category': 'Medical Devices'
-                }
-            }
+            device_mappings = self._get_device_mappings()
 
             # Try exact and partial matching for device names
             device_name_lower = str(device_name).strip().lower()
@@ -576,22 +610,60 @@ class CSVProcessor:
             else:
                 logger.info(f"🔍 No device mapping found for: '{device_name}'")
 
-            # Fallback to original RAG approach
-            logger.info(f"🔄 Falling back to RAG search for cell [{row_idx}, '{col_name}']")
-            return await self._fill_cell_with_rag_fallback(context_info, device_id, row_idx, col_name)
+            # Fallback to original RAG approach with general mode (includes descriptive content)
+            logger.info(f"🔄 Falling back to RAG search for cell [{row_idx}, '{col_name}'] (general mode)")
+            return await self._fill_cell_with_rag_fallback(context_info, device_id, row_idx, col_name, "general")
             
         except Exception as e:
-            logger.error(f"❌ Failed to fill cell with improved RAG: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"❌ Failed to fill cell with general mode: {e}")
             return None
-    
-    async def _fill_cell_with_rag_fallback(
+
+    async def _fill_cell_accurate_mode(
         self, 
         context_info: Dict[str, Any], 
         device_id: str, 
         row_idx: int, 
         col_name: str
+    ) -> Optional[str]:
+        """Fill cell using accurate mode - only exact matches from knowledge base"""
+        try:
+            current_row_data = context_info.get('current_row_data', {})
+            device_name = current_row_data.get('Device Name', '')
+            
+            logger.info(f"🎯 Accurate mode: strict matching for cell [{row_idx}, '{col_name}']")
+
+            # Same device mappings but stricter matching criteria
+            device_mappings = self._get_device_mappings()
+
+            # STRICT matching for accurate mode - only exact device name matches
+            device_name_lower = str(device_name).strip().lower()
+            
+            if device_name_lower in device_mappings:
+                device_info = device_mappings[device_name_lower]
+                if col_name in device_info:
+                    value = device_info[col_name]
+                    logger.info(f"✅ Accurate mode exact match: '{device_name}' -> {col_name}: {value}")
+                    return value
+                else:
+                    logger.info(f"🔍 Accurate mode: exact device match but column '{col_name}' not found")
+            else:
+                logger.info(f"🔍 Accurate mode: no exact match for device '{device_name}'")
+
+            # For accurate mode, use stricter RAG search with higher confidence threshold
+            logger.info(f"🔄 Accurate mode RAG search for cell [{row_idx}, '{col_name}']")
+            return await self._fill_cell_with_rag_fallback(context_info, device_id, row_idx, col_name, "accurate")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to fill cell with accurate mode: {e}")
+            return None
+
+    async def _fill_cell_with_rag_fallback(
+        self, 
+        context_info: Dict[str, Any], 
+        device_id: str, 
+        row_idx: int, 
+        col_name: str,
+        mode: str = "general"
     ) -> Optional[str]:
         """Fill a single cell using RAG knowledge base (fallback method)"""
         try:
@@ -682,9 +754,9 @@ class CSVProcessor:
             for i, res in enumerate(top_results):
                 logger.info(f"Top result {i+1} for cell [{row_idx}, '{col_name}']: {res.content[:200]}")
 
-            # Extract cell value using AI
+            # Extract cell value using AI with mode-specific prompt
             cell_value = await self._extract_cell_value_with_ai(
-                context_info, top_results, queries
+                context_info, top_results, queries, mode
             )
             return cell_value
             
@@ -787,7 +859,8 @@ class CSVProcessor:
         self, 
         context_info: Dict[str, Any], 
         search_results: List[Any], 
-        queries: List[str]
+        queries: List[str],
+        mode: str = "general"
     ) -> Optional[str]:
         """Use AI to extract the appropriate cell value from search results"""
         try:
@@ -802,8 +875,39 @@ class CSVProcessor:
             if not context_docs:
                 return None
             
-            # Create a comprehensive prompt for the AI
-            prompt = f"""
+            # Create mode-specific prompts
+            if mode == "accurate":
+                prompt = f"""
+You are helping to fill a missing cell in a CSV file using ONLY exact information found in documents.
+
+TASK: Find the EXACT value for the "{col_name}" column - NO interpretations or descriptions allowed.
+
+CONTEXT FROM CSV ROW:
+{self._format_row_context(row_data, col_name)}
+
+COLUMN INFORMATION:
+- Column name: {col_name}
+- Data pattern: {column_pattern}
+- Example values from other rows: {', '.join(map(str, column_examples[:5])) if column_examples else 'None'}
+
+AVAILABLE INFORMATION FROM DOCUMENTS:
+{self._format_search_context(context_docs)}
+
+STRICT ACCURACY MODE INSTRUCTIONS:
+1. Look ONLY for EXACT DATA VALUES that are explicitly stated in the documents
+2. NO interpretations, descriptions, or inferred values
+3. NO general information - only specific values that match this field exactly
+4. If you see "Model Number: XYZ-123", extract only "XYZ-123"
+5. If you see "Manufacturer: ACME Corp", extract only "ACME Corp"
+6. Format must match exactly: {', '.join(map(str, column_examples[:3])) if column_examples else 'N/A'}
+7. Return ONLY the raw value, no explanations
+8. If exact value not found, return "NOT_FOUND"
+
+CRITICAL: Only return values that are EXPLICITLY and EXACTLY stated in the documents.
+"""
+            else:
+                # General mode - allows more descriptive content
+                prompt = f"""
 You are helping to fill a missing cell in a CSV file using available document information.
 
 TASK: Find the appropriate value for the "{col_name}" column.
@@ -822,13 +926,14 @@ SEARCH QUERIES USED:
 AVAILABLE INFORMATION FROM DOCUMENTS:
 {self._format_search_context(context_docs)}
 
-INSTRUCTIONS:
+GENERAL MODE INSTRUCTIONS:
 1. Look for ACTUAL DATA VALUES, not statistics or metadata
 2. Focus on content that shows "Record X:" or "- {col_name}: [value]" patterns
 3. Match the data pattern and format of existing examples: {', '.join(map(str, column_examples[:3])) if column_examples else 'N/A'}
 4. If you see patterns like "ECG-2000", "TEMP-100" for Model Number, extract similar values
-5. Return ONLY the specific value that should go in this cell
-6. If you cannot find relevant ACTUAL DATA (not statistics), return "NOT_FOUND"
+5. You can include brief descriptive content when appropriate (e.g., "Advanced ECG Monitor" for device names)
+6. Return ONLY the specific value that should go in this cell
+7. If you cannot find relevant ACTUAL DATA (not statistics), return "NOT_FOUND"
 
 IMPORTANT: 
 - Ignore statistics like "Model Number: 2 filled, 3 empty"

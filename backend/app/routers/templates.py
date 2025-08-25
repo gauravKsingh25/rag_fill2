@@ -28,7 +28,8 @@ csv_processor = CSVProcessor()
 @router.post("/upload-and-fill", response_model=TemplateResponse)
 async def upload_and_fill_template(
     device_id: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    filling_mode: str = Form("general")
 ):
     """Upload a template file and fill it with device knowledge"""
     try:
@@ -49,7 +50,8 @@ async def upload_and_fill_template(
         filled_template_path, filled_fields, missing_fields = await process_template(
             template_content=template_content,
             filename=file.filename,
-            device_id=device_id
+            device_id=device_id,
+            filling_mode=filling_mode
         )
         
         return TemplateResponse(
@@ -67,7 +69,8 @@ async def upload_and_fill_template(
 async def process_template(
     template_content: bytes,
     filename: str,
-    device_id: str
+    device_id: str,
+    filling_mode: str = "general"
 ) -> tuple[str, Dict[str, str], List[str]]:
     """Process template and fill placeholders using enhanced question-based approach"""
     try:
@@ -1137,7 +1140,8 @@ async def analyze_template(
 @router.post("/upload-and-fill-csv")
 async def upload_and_fill_csv(
     device_id: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    filling_mode: str = Form("general")
 ):
     """Upload a CSV file and fill empty cells with device knowledge"""
     try:
@@ -1158,7 +1162,8 @@ async def upload_and_fill_csv(
         result = await csv_processor.process_csv_file(
             csv_content=csv_content,
             filename=file.filename,
-            device_id=device_id
+            device_id=device_id,
+            filling_mode=filling_mode
         )
         
         # Add the filled CSV to file history (not favorites)
