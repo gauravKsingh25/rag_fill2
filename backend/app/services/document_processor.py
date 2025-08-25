@@ -15,6 +15,9 @@ import unicodedata
 from io import BytesIO, StringIO
 from dotenv import load_dotenv
 
+# Import enhanced text processor for OCR quality improvement
+from .enhanced_text_processor import enhanced_text_processor
+
 # Optional imports for enhanced PDF processing
 try:
     import pdfplumber
@@ -673,133 +676,100 @@ class DocumentProcessor:
             return ""
     
     def _clean_extracted_text(self, text: str) -> str:
-        """Clean and normalize extracted text"""
+        """Clean and normalize extracted text using enhanced OCR processor"""
         try:
             if not text:
                 return ""
             
-            # Normalize unicode characters
-            text = unicodedata.normalize('NFKD', text)
+            logger.debug(f"🧹 Starting enhanced text cleaning for {len(text)} characters")
             
-            # Remove or replace problematic characters
-            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x84\x86-\x9f]', ' ', text)
+            # Use enhanced text processor for comprehensive cleaning
+            cleaned_text = enhanced_text_processor.clean_ocr_text(text)
             
-            # Enhanced fix for common OCR errors and encoding issues
+            # Log the cleaning results
+            original_length = len(text)
+            cleaned_length = len(cleaned_text)
+            reduction_pct = ((original_length - cleaned_length) / original_length * 100) if original_length > 0 else 0
+            
+            logger.info(f"✅ Enhanced text cleaning: {original_length} → {cleaned_length} chars ({reduction_pct:.1f}% reduction)")
+            
+            return cleaned_text
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Enhanced text cleaning failed, using fallback: {e}")
+            # Fallback to original cleaning logic
+            return self._fallback_clean_text(text)
+
+    def _fallback_clean_text(self, text: str) -> str:
+        """Fallback text cleaning method"""
+        if not text or not isinstance(text, str):
+            return ""
+        
+        # Basic cleaning operations
+        text = text.strip()
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Remove page numbers and headers/footers that might interfere
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Skip likely page numbers (standalone numbers)
+            if re.match(r'^\d+$', line) and len(line) <= 3:
+                continue
+            
+            # Skip lines that are just page markers
+            if re.match(r'^(page|página)\s*\d+', line.lower()):
+                continue
+            
+            # Skip very short lines that might be artifacts (but keep field labels with colons)
+            if len(line) < 3 and ':' not in line:
+                continue
+            
+            cleaned_lines.append(line)
+        
+        # Rejoin and do final cleanup
+        text = '\n'.join(cleaned_lines)
+        text = text.strip()
+        
+        # Log cleaning results
+        logger.debug(f"🧹 Text cleaning: {len(text)} characters after cleanup")
+        
+        return text
+
+    def _fallback_clean_text(self, text: str) -> str:
+        """Fallback text cleaning method"""
+        try:
+            if not text:
+                return ""
+            
+            # Basic cleaning (original logic)
+            text = text.strip()
+            
+            # Basic encoding fixes
             replacements = {
-                # Smart quotes and dashes - MORE COMPREHENSIVE
-                'â€™': "'", 'â€˜': "'", ''': "'", ''': "'",
-                'â€œ': '"', 'â€\x9d': '"', '"': '"', '"': '"',
-                'â€"': '—', 'â€"': '–', '–': '-', '—': '-',
-                'â€¦': '...', '…': '...',
-                
-                # Non-breaking spaces and similar issues - EXPANDED
-                'Â ': ' ', 'Â': ' ', '\xa0': ' ', '\u00a0': ' ',
-                '\u2000': ' ', '\u2001': ' ', '\u2002': ' ', '\u2003': ' ',
-                '\u2004': ' ', '\u2005': ' ', '\u2006': ' ', '\u2007': ' ',
-                '\u2008': ' ', '\u2009': ' ', '\u200a': ' ', '\u200b': '',
-                
-                # Common bullet points and symbols
-                'â€¢': '•', 'â—': '•', '•': '•',
-                'â–ª': '▪', 'â–«': '▫', '▪': '▪', '▫': '▫',
-                'â€º': '›', 'â€¹': '‹', '›': '>', '‹': '<',
-                
-                # Currency and special symbols
-                'â‚¬': '€', 'Â£': '£', 'Â¥': '¥',
-                'Â®': '®', 'Â©': '©', 'â„¢': '™',
-                '®': '®', '©': '©', '™': 'TM',
-                
-                # Accented characters (common encoding issues) - EXPANDED
-                'Ã¡': 'á', 'Ã©': 'é', 'Ã­': 'í', 'Ã³': 'ó', 'Ãº': 'ú',
-                'Ã ': 'à', 'Ã¨': 'è', 'Ã¬': 'ì', 'Ã²': 'ò', 'Ã¹': 'ù',
-                'Ã¢': 'â', 'Ãª': 'ê', 'Ã®': 'î', 'Ã´': 'ô', 'Ã»': 'û',
-                'Ã¤': 'ä', 'Ã«': 'ë', 'Ã¯': 'ï', 'Ã¶': 'ö', 'Ã¼': 'ü',
-                'Ã±': 'ñ', 'Ã§': 'ç', 'Ã¿': 'ÿ',
-                
-                # Additional problematic sequences - MUCH MORE COMPREHENSIVE
-                'ï¿½': '',    # Replacement character (usually garbled)
-                'â–': '-',    # Various dash issues
-                'â€': '',     # Common prefix for encoding issues
-                'â€ ': ' ',   # Another variant
-                'â€\x9c': '"', 'â€\x9d': '"',  # More quote variants
-                'â€\x98': "'", 'â€\x99': "'",  # More quote variants
-                'â€\x93': '-', 'â€\x94': '-',  # More dash variants
-                'â€\xa6': '...', # Ellipsis variant
-                
-                # Remove complex garbled sequences
-                'â€™s': "'s",  # Possessive apostrophe
-                'â€œthe': '"the',  # Quote before word
-                'â€\x9cthe': '"the',  # Another quote variant
-                
-                # Table and form artifacts
-                '|': ' | ',  # Keep table separators readable
-                
-                # Remove obviously corrupted sequences
-                'â€š': ',', 'â€ž': '"', 'â€°': '%',
-                'âˆ': '', 'â•': '', 'â–': '',
-                'â—': '', 'â˜': '', 'â™': '',
-                'âš': '', 'â›': '', 'âœ': '',
-                'â': '', 'âž': '', 'âŸ': '',
+                'â€™': "'", 'â€œ': '"', 'â€\x9d': '"', 'â€"': '-',
+                'â€\x93': '-', 'â€\x94': '--', 'â€¦': '...',
+                'ï¿½': '', 'â€': '', 'Â ': ' ',
             }
             
-            # Apply all replacements
             for old, new in replacements.items():
                 text = text.replace(old, new)
             
-            # Additional aggressive cleaning for remaining artifacts
-            # Remove any remaining â€ sequences that weren't caught above
-            text = re.sub(r'â€[^\w\s]', '', text)  # Remove â€ followed by special chars
-            text = re.sub(r'â€\w{1,2}', '', text)  # Remove â€ followed by 1-2 chars
+            # Clean up whitespace
+            text = re.sub(r'[ \t]+', ' ', text)
+            text = re.sub(r'\n[ \t]+', '\n', text)
+            text = re.sub(r'[ \t]+\n', '\n', text)
+            text = re.sub(r'\n{3,}', '\n\n', text)
             
-            # Remove sequences that are likely encoding artifacts
-            # More aggressive removal of garbled sequences
-            text = re.sub(r'[^\w\s.,;:!?()&@#$%^*+=|\\/<>[\]{}"\'`~-]{3,}', ' ', text)
-            
-            # Remove isolated special characters that might be artifacts
-            text = re.sub(r'\b[^\w\s.,;:!?()-]\b', ' ', text)
-            
-            # Clean up multiple encoding artifacts in sequence
-            text = re.sub(r'(â€|Â|ï¿½|â–|â‚¬|â„¢|Ã){2,}', ' ', text)
-            
-            # Remove excessive whitespace while preserving paragraph breaks
-            text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces/tabs to single space
-            text = re.sub(r'\n[ \t]+', '\n', text)  # Remove leading whitespace on lines
-            text = re.sub(r'[ \t]+\n', '\n', text)  # Remove trailing whitespace on lines
-            text = re.sub(r'\n{3,}', '\n\n', text)  # Multiple newlines to double newline
-            
-            # Remove page numbers and headers/footers that might interfere
-            lines = text.split('\n')
-            cleaned_lines = []
-            
-            for line in lines:
-                line = line.strip()
-                
-                # Skip likely page numbers (standalone numbers)
-                if re.match(r'^\d+$', line) and len(line) <= 3:
-                    continue
-                
-                # Skip lines that are just page markers
-                if re.match(r'^(page|página)\s*\d+', line.lower()):
-                    continue
-                
-                # Skip very short lines that might be artifacts (but keep field labels with colons)
-                if len(line) < 3 and ':' not in line:
-                    continue
-                
-                cleaned_lines.append(line)
-            
-            # Rejoin and do final cleanup
-            text = '\n'.join(cleaned_lines)
-            text = text.strip()
-            
-            # Log cleaning results
-            logger.debug(f"🧹 Text cleaning: {len(text)} characters after cleanup")
-            
-            return text
+            return text.strip()
             
         except Exception as e:
-            logger.warning(f"⚠️ Text cleaning failed: {e}")
-            return text  # Return original text if cleaning fails
-    
+            logger.warning(f"⚠️ Fallback text cleaning failed: {e}")
+            return text
+
     def _is_text_quality_good(self, text: str) -> bool:
         """Check if extracted text has good quality (not corrupted/garbled)"""
         try:
@@ -1562,24 +1532,54 @@ class DocumentProcessor:
             raise
     
     def _prepare_text_for_embedding(self, text: str) -> str:
-        """Prepare text for embedding generation"""
+        """Prepare text for embedding generation with enhanced cleaning"""
         try:
+            # Use enhanced text processor to clean and enhance text
+            cleaned_text = enhanced_text_processor.clean_ocr_text(text)
+            
             # Remove embedding markers we added for chunking
-            text = re.sub(r'\s*\[FIELD_LABEL\]', '', text)
-            text = re.sub(r'\s*\[STRUCTURED_CONTENT\]', '', text)
+            cleaned_text = re.sub(r'\s*\[FIELD_LABEL\]', '', cleaned_text)
+            cleaned_text = re.sub(r'\s*\[STRUCTURED_CONTENT\]', '', cleaned_text)
+            
+            # Final enhancement for embedding
+            enhanced_text = enhanced_text_processor.enhance_chunk_content(cleaned_text)
             
             # Clean up excessive whitespace
-            text = re.sub(r'\s+', ' ', text)
-            text = text.strip()
+            enhanced_text = re.sub(r'\s+', ' ', enhanced_text)
+            enhanced_text = enhanced_text.strip()
             
-            return text
+            logger.debug(f"📝 Text prepared for embedding: {len(text)} → {len(enhanced_text)} chars")
+            
+            return enhanced_text
             
         except Exception as e:
             logger.warning(f"⚠️ Failed to prepare text for embedding: {e}")
-            return text
+            # Fallback to basic cleaning
+            text = re.sub(r'\s*\[FIELD_LABEL\]', '', text)
+            text = re.sub(r'\s*\[STRUCTURED_CONTENT\]', '', text)
+            text = re.sub(r'\s+', ' ', text)
+            return text.strip()
     
     def _assess_extraction_quality(self, text: str) -> float:
-        """Assess the quality of extracted text (0.0 to 1.0)"""
+        """Assess the quality of extracted text using enhanced processor (0.0 to 1.0)"""
+        try:
+            if not text:
+                return 0.0
+            
+            # Use enhanced text processor for comprehensive quality assessment
+            quality_score = enhanced_text_processor.assess_chunk_quality(text)
+            
+            logger.debug(f"📊 Enhanced quality assessment: {quality_score:.2f}")
+            
+            return quality_score
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Enhanced quality assessment failed, using fallback: {e}")
+            # Fallback to basic quality assessment
+            return self._fallback_assess_quality(text)
+    
+    def _fallback_assess_quality(self, text: str) -> float:
+        """Fallback quality assessment method"""
         try:
             if not text:
                 return 0.0
@@ -1615,6 +1615,77 @@ class DocumentProcessor:
             logger.warning(f"⚠️ Failed to assess extraction quality: {e}")
             return 0.5  # Default to medium quality
     
+    def _create_small_document_chunks(self, text: str) -> List[Dict[str, Any]]:
+        """Create chunks for small documents using paragraph-based splitting"""
+        try:
+            chunks = []
+            
+            # Split by paragraphs for small documents
+            paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+            
+            if not paragraphs:
+                # Fall back to line-based splitting
+                paragraphs = [line.strip() for line in text.split('\n') if line.strip() and len(line.strip()) > 10]
+            
+            if not paragraphs:
+                # Last resort: single chunk
+                if len(text.strip()) > 20:
+                    quality_score = enhanced_text_processor.assess_chunk_quality(text)
+                    return [{
+                        "chunk_id": "single_chunk_0",
+                        "content": enhanced_text_processor.enhance_chunk_content(text),
+                        "start_index": 0,
+                        "end_index": len(text),
+                        "word_count": len(text.split()),
+                        "content_type": "text",
+                        "has_structured_data": False,
+                        "contains_fields": False,
+                        "importance_score": min(1.0, quality_score + 0.1),
+                        "entity_density": 0.0,
+                        "information_richness": 0.0,
+                        "semantic_keywords": [],
+                        "position_info": {"relative_position": 0.5, "section": "single"},
+                        "coverage_info": {"covers_start": True, "covers_end": True},
+                        "quality_score": quality_score,
+                        "ocr_quality": quality_score,
+                        "technical_content": False,
+                    }]
+                return []
+            
+            for i, paragraph in enumerate(paragraphs):
+                if len(paragraph) >= 30 and enhanced_text_processor.should_include_chunk(paragraph):
+                    enhanced_content = enhanced_text_processor.enhance_chunk_content(paragraph)
+                    quality_score = enhanced_text_processor.assess_chunk_quality(enhanced_content)
+                    chunk_summary = enhanced_text_processor.generate_chunk_summary(enhanced_content)
+                    
+                    chunk_data = {
+                        "chunk_id": f"para_chunk_{i}",
+                        "content": enhanced_content,
+                        "start_index": 0,  # Approximate for small docs
+                        "end_index": len(enhanced_content),
+                        "word_count": len(enhanced_content.split()),
+                        "content_type": chunk_summary.get('content_type', 'text'),
+                        "has_structured_data": chunk_summary.get('has_table_data', False),
+                        "contains_fields": chunk_summary.get('has_form_fields', False),
+                        "importance_score": min(1.0, quality_score + 0.2),
+                        "entity_density": 0.0,
+                        "information_richness": 0.0,
+                        "semantic_keywords": chunk_summary.get('top_words', []),
+                        "position_info": {"relative_position": i / len(paragraphs), "section": f"paragraph_{i}"},
+                        "coverage_info": {"covers_start": i == 0, "covers_end": i == len(paragraphs) - 1},
+                        "quality_score": quality_score,
+                        "ocr_quality": quality_score,
+                        "technical_content": chunk_summary.get('has_technical_terms', False),
+                    }
+                    chunks.append(chunk_data)
+            
+            logger.info(f"✅ Created {len(chunks)} paragraph-based chunks for small document")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create small document chunks: {e}")
+            return []
+
     def _extract_keywords(self, text: str) -> str:
         """Extract important keywords from text for better searchability"""
         try:
@@ -1915,26 +1986,36 @@ class DocumentProcessor:
             return chunks
     
     def _calculate_chunk_quality_score(self, content: str) -> float:
-        """Calculate overall quality score for a chunk"""
+        """Calculate quality score for a chunk using enhanced text processor"""
         try:
-            quality_score = 0.0
+            # Use enhanced text processor for comprehensive quality assessment
+            quality_score = enhanced_text_processor.assess_chunk_quality(content)
             
-            # Text coherence (sentence structure)
-            sentences = content.split('.')
-            if len(sentences) > 1:
-                avg_length = sum(len(s.split()) for s in sentences if s.strip()) / max(1, len([s for s in sentences if s.strip()]))
-                if 5 <= avg_length <= 30:
-                    quality_score += 0.3
+            logger.debug(f"📊 Chunk quality score: {quality_score:.2f}")
             
-            # Information density
+            return quality_score
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Enhanced chunk quality calculation failed, using fallback: {e}")
+            # Fallback to basic assessment
+            return self._fallback_assess_quality(content)
+
+    def _fallback_assess_quality(self, content: str) -> float:
+        """Fallback quality assessment method"""
+        try:
+            if not content or not isinstance(content, str):
+                return 0.0
+            
+            # Start with base quality
+            quality_score = 0.3
+            
+            # Length factor
+            if len(content) > 100:
+                quality_score += 0.2
+            
+            # Word diversity check
             words = content.split()
-            if words:
-                # Good word length distribution
-                avg_word_length = sum(len(word) for word in words) / len(words)
-                if 3 <= avg_word_length <= 8:
-                    quality_score += 0.2
-                
-                # Vocabulary richness
+            if len(words) > 5:
                 unique_words = len(set(word.lower() for word in words))
                 if unique_words / len(words) > 0.6:  # Good vocabulary diversity
                     quality_score += 0.2
