@@ -219,7 +219,7 @@ DOCUMENTS:
 QUESTION: {prompt}
 
 INSTRUCTIONS:
-1. Provide a direct, helpful answer using only the information in the documents
+1. Provide a detailed, helpful answer using only the information in the documents
 2. Write in plain, simple language 
 3. If the information isn't available, simply say "I don't have that information in the documents"
 4. Don't include chunk numbers, confidence scores, or technical citations

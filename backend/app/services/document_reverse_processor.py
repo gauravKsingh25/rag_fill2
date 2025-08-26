@@ -18,7 +18,7 @@ from io import BytesIO
 import tempfile
 from collections import Counter, defaultdict
 from docx import Document
-from docx.shared import Inches, RGBColor
+from docx.shared import Inches, RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.text.paragraph import CT_P
@@ -30,6 +30,7 @@ from docx.oxml.ns import qn
 from docx.text.run import Run
 import zipfile
 import copy
+from .llm_document_processor import LLMDocumentProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,13 @@ class DocumentReverseProcessor:
         self.output_dir = Path("./blank_templates")
         self.output_dir.mkdir(exist_ok=True)
         
+        # Initialize LLM document processor
+        self.llm_processor = LLMDocumentProcessor()
+        
+        # Track document parsing state
+        self._in_toc = False  # Flag to track if we're in Table of Contents
+        self._last_heading = None  # Track the last heading we saw
+        
         # Intelligent analysis configuration
         self.config = {
             'min_field_confidence': 0.7,
@@ -59,10 +67,11 @@ class DocumentReverseProcessor:
             'structure_preservation': True,
             'exact_formatting_preservation': True,
             'page_break_tolerance': 2,  # Allow up to 2 empty lines between table rows
-            'enhanced_table_detection': True
+            'enhanced_table_detection': True,
+            'heading_preservation': True  # Control heading preservation behavior
         }
         
-        logger.info("🧠 Intelligent Document Reverse Processor initialized - No manual word lists!")
+        logger.info("🧠 Intelligent Document Reverse Processor initialized with LLM heading matching")
     
     async def process_filled_document(
         self, 
@@ -153,11 +162,22 @@ class DocumentReverseProcessor:
             # Load document
             doc = Document(BytesIO(file_content))
             
+            # Use LLM to match headings with table of contents
+            preserved_headings, heading_levels = await self.llm_processor.match_headings_with_toc(doc)
+            
+            # Analyze table structures to preserve
+            table_structures = await self.llm_processor.analyze_table_structure(doc)
+            
             # Extract text for analysis
             text = self._extract_text_from_word(doc)
             
             # 🧠 Intelligent analysis
             analysis = self._analyze_content_intelligently(text)
+            
+            # Add heading and table information to analysis
+            analysis['preserved_headings'] = list(preserved_headings)
+            analysis['heading_levels'] = heading_levels
+            analysis['preserved_tables'] = table_structures
             
             # 🏗️ Process while preserving exact formatting
             self._process_word_preserve_everything(doc, analysis)
@@ -630,19 +650,40 @@ class DocumentReverseProcessor:
         try:
             fields = analysis.get('fields', [])
             data_types = analysis.get('data_types', {})
+            preserved_headings = set(analysis.get('preserved_headings', []))
+            heading_levels = analysis.get('heading_levels', {})
+            preserved_tables = analysis.get('preserved_tables', [])
+            
+            # Get indices of tables to preserve
+            table_indices = {table['index'] for table in preserved_tables}
             
             # Process paragraphs
             for paragraph in doc.paragraphs:
-                if paragraph.text.strip():
+                text = paragraph.text.strip()
+                if not text:
+                    continue
+                    
+                # Check if this is a preserved heading
+                if text in preserved_headings:
+                    # Keep the heading but style it according to its level
+                    level = heading_levels.get(text, 2)
+                    self._convert_to_heading(paragraph, text, level)
+                else:
+                    # Process normally
                     self._convert_paragraph_intelligently(paragraph, fields, data_types)
             
             # Process tables
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        for paragraph in cell.paragraphs:
-                            if paragraph.text.strip():
-                                self._convert_paragraph_intelligently(paragraph, fields, data_types)
+            for i, table in enumerate(doc.tables):
+                if i in table_indices:
+                    # Preserve table structure but blank out content
+                    self._process_preserved_table(table, fields, data_types)
+                else:
+                    # Process normally
+                    for row in table.rows:
+                        for cell in row.cells:
+                            for paragraph in cell.paragraphs:
+                                if paragraph.text.strip():
+                                    self._convert_paragraph_intelligently(paragraph, fields, data_types)
             
             logger.info("✅ Document processed with complete formatting preservation")
             
@@ -650,13 +691,75 @@ class DocumentReverseProcessor:
             logger.warning(f"⚠️ Document processing failed: {e}")
     
     def _convert_paragraph_intelligently(self, paragraph: Paragraph, fields: List, data_types: Dict):
-        """🧠 Convert paragraph content intelligently"""
+        """🧠 Convert paragraph content intelligently, removing device-specific content"""
         try:
-            original_text = paragraph.text
-            new_text = self._create_intelligent_blank_version(original_text, fields, data_types)
+            original_text = paragraph.text.strip()
             
+            # Skip empty paragraphs
+            if not original_text:
+                return
+                
+            # Check if we're in Table of Contents section
+            if hasattr(self, '_in_toc') and self._in_toc:
+                return  # Preserve all TOC content
+                
+            # Detect Table of Contents start
+            if self._is_toc_start(original_text):
+                self._in_toc = True
+                return
+                
+            # Detect Table of Contents end
+            if hasattr(self, '_in_toc') and self._in_toc and self._is_toc_end(original_text):
+                self._in_toc = False
+                return
+            
+            # If this is a heading, preserve it
+            if self._is_likely_heading(paragraph):
+                # Store the last heading we saw
+                self._last_heading = original_text.lower()
+                return
+                
+            # Special handling for content under "Introduction" heading
+            if hasattr(self, '_last_heading') and self._last_heading == 'introduction':
+                paragraph.text = ""  # Clear introduction content
+                return
+                
+            # If this is a field label, preserve it but blank the value
+            if self._is_likely_form_field(original_text):
+                new_text = self._convert_field_to_blank_intelligent({
+                    'text': original_text,
+                    'label': original_text.split(':')[0] if ':' in original_text else '',
+                    'value': original_text.split(':')[1] if ':' in original_text else original_text,
+                    'separator': ':',
+                    'field_type': self._guess_field_type(original_text)
+                })
+                self._replace_text_preserve_formatting(paragraph, new_text)
+                return
+                
+            # More aggressive content removal for descriptive paragraphs
+            if len(original_text.split()) > 2:  # If more than 2 words, likely descriptive
+                # Keep only if it's a critical note/warning
+                if not any(marker.lower() in original_text.lower() 
+                          for marker in ['note:', 'warning:', 'caution:', 'important:']):
+                    paragraph.text = ""  # Clear descriptive content
+                    return
+                    
+            # For other content, try intelligent blank conversion
+            new_text = self._create_intelligent_blank_version(original_text, fields, data_types)
             if new_text != original_text:
-                logger.debug(f"🔄 Converting: {original_text[:50]}... -> {new_text[:50]}...")
+                self._replace_text_preserve_formatting(paragraph, new_text)
+                
+            # If this appears to be descriptive content, blank it entirely
+            if len(original_text.split()) > 3:  # More than 3 words is likely descriptive
+                # Check if it's device-specific content
+                if not any(pattern in original_text.lower() for pattern in ['note:', 'warning:', 'caution:', 'important:']):
+                    # Replace with blank line or remove
+                    paragraph.text = ""
+                    return
+            
+            # For other content, try intelligent blank conversion
+            new_text = self._create_intelligent_blank_version(original_text, fields, data_types)
+            if new_text != original_text:
                 self._replace_text_preserve_formatting(paragraph, new_text)
                 
         except Exception as e:
@@ -1043,6 +1146,235 @@ class DocumentReverseProcessor:
             logger.error(f"❌ Document saving failed: {e}")
             raise
     
+    def _is_likely_heading(self, paragraph: Paragraph) -> bool:
+        """📋 Intelligent header detection including standard document sections"""
+        try:
+            text = paragraph.text.strip()
+            if not text:
+                return False
+                
+            # Standard document section headers to always preserve
+            standard_sections = {
+                'introduction', 'summary', 'overview', 'purpose', 'scope',
+                'background', 'objectives', 'methodology', 'discussion',
+                'conclusion', 'recommendations', 'references', 'appendix',
+                'abbreviations', 'definitions', 'requirements', 'specifications'
+            }
+            
+            # Check if it's a standard section header
+            if text.lower() in standard_sections:
+                return True
+                
+            # Check style-based heading
+            if paragraph.style and 'heading' in paragraph.style.name.lower():
+                return True
+            
+            header_score = 0.0
+            
+            # Length-based scoring
+            if len(text) < 80:
+                header_score += 0.3
+            
+            # Case-based scoring
+            if text.isupper():
+                header_score += 0.8
+            elif text.istitle():
+                header_score += 0.6
+            
+            # Format-based scoring
+            for run in paragraph.runs:
+                if run.bold or (run.font.size and run.font.size >= Pt(12)):
+                    header_score += 0.4
+                    break
+            
+            # Pattern-based scoring
+            header_keywords = ['section', 'part', 'chapter', 'appendix', 'summary']
+            if any(keyword in text.lower() for keyword in header_keywords):
+                header_score += 0.7
+            
+            # Numbering patterns like "1." or "A."
+            if re.match(r'^\d+\.?\s+', text) or re.match(r'^[A-Z]\.?\s+', text):
+                header_score += 0.6
+                
+            # Check for section numbers like "1.2.3"
+            if re.match(r'^\d+(\.\d+)*\s+[A-Z]', text):
+                header_score += 0.8
+            
+            # Check for common heading endings
+            if text.endswith(':') and len(text.split()) <= 6:
+                header_score += 0.5
+                
+            # Additional patterns for DHF/DMF documents
+            device_doc_patterns = [
+                r'^\d+\.\d+\s+[A-Z]',  # "1.1 TITLE"
+                r'^[IVX]+\.',  # Roman numerals
+                r'^\d+\.\d+\.\d+\s+',  # "1.1.1"
+                r'^[A-Z][A-Za-z\s]+:',  # "Device Description:"
+                r'^[A-Z][A-Za-z\s]+\([A-Z]\)',  # "Section (A)"
+            ]
+            
+            if any(re.match(pattern, text) for pattern in device_doc_patterns):
+                header_score += 0.6
+            
+            return header_score >= 0.7
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Heading detection failed: {e}")
+            return False
+            
+    def _extract_paragraph_formatting(self, paragraph: Paragraph) -> Dict:
+        """Extract formatting information from a paragraph"""
+        try:
+            formatting = {
+                'style': paragraph.style.name if paragraph.style else None,
+                'alignment': paragraph.alignment,
+                'runs': []
+            }
+            
+            # Extract run-level formatting
+            for run in paragraph.runs:
+                run_format = {
+                    'bold': run.bold,
+                    'italic': run.italic,
+                    'underline': run.underline,
+                    'font_name': run.font.name,
+                    'font_size': run.font.size,
+                    'color': run.font.color.rgb if run.font.color else None
+                }
+                formatting['runs'].append(run_format)
+            
+            return formatting
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Formatting extraction failed: {e}")
+            return {'style': None, 'alignment': None, 'runs': []}
+    
+    def _process_preserved_table(self, table: Table, fields: List, data_types: Dict):
+        """Process a table that needs to be preserved, blanking content while maintaining structure"""
+        try:
+            # Get header row content for preservation
+            header_row = table.rows[0] if table.rows else None
+            header_texts = []
+            
+            if header_row:
+                for cell in header_row.cells:
+                    header_texts.append(cell.text.strip())
+            
+            # Process each row
+            for i, row in enumerate(table.rows):
+                for j, cell in enumerate(row.cells):
+                    if i == 0 and header_texts:  # This is the header row
+                        # Preserve header text and formatting
+                        if j < len(header_texts):
+                            self._process_cell_preserve_header(cell, header_texts[j])
+                    else:
+                        # Process content cells
+                        self._process_cell_content(cell, fields, data_types)
+                        
+        except Exception as e:
+            logger.warning(f"⚠️ Table processing failed: {e}")
+    
+    def _process_cell_preserve_header(self, cell: _Cell, header_text: str):
+        """Process a header cell, preserving its text and formatting"""
+        try:
+            # Store formatting from first paragraph
+            original_format = None
+            if cell.paragraphs:
+                original_format = self._extract_paragraph_formatting(cell.paragraphs[0])
+            
+            # Clear cell content
+            cell.text = ""
+            
+            # Add header text back with preserved formatting
+            paragraph = cell.paragraphs[0]
+            run = paragraph.add_run(header_text)
+            
+            # Apply preserved formatting
+            if original_format:
+                if original_format.get('runs'):
+                    run_format = original_format['runs'][0]
+                    run.bold = run_format.get('bold', True)  # Headers usually bold
+                    run.italic = run_format.get('italic', False)
+                    run.underline = run_format.get('underline', False)
+                    if run_format.get('font_name'):
+                        run.font.name = run_format['font_name']
+                    if run_format.get('font_size'):
+                        run.font.size = run_format['font_size']
+                    if run_format.get('color'):
+                        run.font.color.rgb = run_format['color']
+                
+                # Apply paragraph alignment
+                paragraph.alignment = original_format.get('alignment', WD_ALIGN_PARAGRAPH.CENTER)
+            else:
+                # Default header formatting
+                run.bold = True
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Header cell processing failed: {e}")
+            # Fallback: just set text
+            cell.text = header_text
+    
+    def _process_cell_content(self, cell: _Cell, fields: List, data_types: Dict):
+        """Process a content cell, making it blank while preserving structure"""
+        try:
+            # Store cell formatting
+            original_format = None
+            if cell.paragraphs:
+                original_format = self._extract_paragraph_formatting(cell.paragraphs[0])
+            
+            # Clear cell content
+            cell.text = ""
+            
+            # Add blank field with preserved formatting
+            paragraph = cell.paragraphs[0]
+            run = paragraph.add_run("_" * 15)  # Create blank field
+            
+            # Apply preserved formatting
+            if original_format:
+                if original_format.get('runs'):
+                    run_format = original_format['runs'][0]
+                    run.italic = run_format.get('italic', False)
+                    run.underline = run_format.get('underline', True)  # Make blanks underlined
+                    if run_format.get('font_name'):
+                        run.font.name = run_format['font_name']
+                    if run_format.get('font_size'):
+                        run.font.size = run_format['font_size']
+                
+                # Apply paragraph alignment
+                paragraph.alignment = original_format.get('alignment', WD_ALIGN_PARAGRAPH.LEFT)
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ Cell content processing failed: {e}")
+            # Fallback: clear cell
+            cell.text = "_____"
+    
+    def _convert_to_heading(self, paragraph: Paragraph, text: str, level: int = 2):
+        """Convert a paragraph to a heading of specified level while preserving text"""
+        try:
+            # Store original text and clear paragraph
+            paragraph.clear()
+            
+            # Set the style to appropriate heading level
+            paragraph.style = f'Heading {level}'
+            
+            # Add text back with preserved formatting
+            run = paragraph.add_run(text)
+            run.bold = True
+            
+            # Additional formatting based on level
+            if level == 1:
+                run.font.size = Pt(16)
+            elif level == 2:
+                run.font.size = Pt(14)
+            else:
+                run.font.size = Pt(12)
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Heading conversion failed: {e}")
+            # Fallback: just add text back
+            paragraph.add_run(text)
+
     def _add_intelligent_word_header(self, doc: Document, filename: str, analysis: Dict):
         """📋 Add intelligent header to Word document"""
         try:
