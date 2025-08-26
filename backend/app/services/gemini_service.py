@@ -6,6 +6,8 @@ import re
 import json
 import hashlib
 import numpy as np
+import time
+import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -15,9 +17,21 @@ logger = logging.getLogger(__name__)
 
 class GeminiService:
     def __init__(self):
-        # SECURITY FIX: Use environment variable instead of hardcoded API key
+        # Initialize all attributes first
         self.api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self.available = False
+        self.embedding_cache = {}  # Initialize embedding cache
+        self.embedding_rate_limit = 60  # requests per minute for embeddings
+        self.generation_rate_limit = 30  # requests per minute for text generation
+        self.embedding_requests = 0
+        self.generation_requests = 0
+        self.last_reset = time.time()
+        self.last_request_time = {}
+        self.request_count = {}
+        
+        # Model configuration
+        self.embedding_model = "gemini-embedding-001"
+        self.generation_model = "gemini-2.5-flash-lite"
         
         # Debug logging to check environment variable loading
         if self.api_key:
@@ -39,8 +53,9 @@ class GeminiService:
             logger.info("📝 Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable")
             logger.info("📝 Gemini service will operate in fallback mode")
             
-        self.embedding_model = "models/embedding-001"
-        self.generation_model = "gemini-1.5-flash"
+        # Final model configuration (overrides any previous settings)
+        self.embedding_model = "models/gemini-embedding-001"  # Optimized for embeddings
+        self.generation_model = "gemini-2.5-flash-lite"      # Better for complex content generation
     
     def _generate_fallback_embedding(self, text: str) -> List[float]:
         """Generate a simple hash-based embedding as fallback"""
@@ -80,26 +95,62 @@ class GeminiService:
             return [0.0] * target_dim
     
     async def get_embedding(self, text: str) -> List[float]:
-        """Generate embeddings using Gemini or fallback"""
+        """Generate embeddings using Gemini with rate limiting and caching"""
         try:
             if not self.available:
-                # Fallback: Generate a simple hash-based embedding
                 logger.warning("📝 Using fallback embedding (Google API not available)")
                 return self._generate_fallback_embedding(text)
             
+            # Check cache first
+            text_hash = hashlib.sha256(text.encode()).hexdigest()
+            if text_hash in self.embedding_cache:
+                logger.debug("📝 Using cached embedding")
+                return self.embedding_cache[text_hash]
+            
+            # Apply rate limiting
+            current_time = time.time()
+            current_minute = int(current_time / 60)
+            
+            if 'embedding' not in self.last_request_time:
+                self.last_request_time['embedding'] = current_minute
+                self.request_count['embedding'] = 0
+            
+            # Reset counter if we're in a new minute
+            if current_minute > self.last_request_time['embedding']:
+                self.request_count['embedding'] = 0
+                self.last_request_time['embedding'] = current_minute
+            
+            # Check rate limit
+            if self.request_count['embedding'] >= self.embedding_rate_limit:
+                wait_time = 60 - (current_time % 60)
+                logger.warning(f"⏳ Rate limit reached, waiting {wait_time:.1f}s")
+                await asyncio.sleep(wait_time)
+                self.request_count['embedding'] = 0
+            
+            # Generate embedding
             result = genai.embed_content(
                 model=self.embedding_model,
                 content=text,
                 task_type="retrieval_document"
             )
             
-            # Ensure the embedding is 1024-dimensional to match Pinecone index
-            embedding = result['embedding']
-            return self._pad_or_truncate_embedding(embedding, 1024)
+            self.request_count['embedding'] += 1
+            
+            # Process and cache result
+            embedding = self._pad_or_truncate_embedding(result['embedding'], 1024)
+            self.embedding_cache[text_hash] = embedding
+            
+            return embedding
             
         except Exception as e:
+            if 'quota exceeded' in str(e).lower() or 'rate limit' in str(e).lower():
+                logger.error(f"⚠️ Rate limit or quota exceeded: {e}")
+                wait_time = 60
+                logger.info(f"⏳ Waiting {wait_time}s before retry...")
+                await asyncio.sleep(wait_time)
+                return await self.get_embedding(text)  # Retry once
+            
             logger.error(f"❌ Failed to generate embedding: {e}")
-            # Fallback on error
             logger.warning("📝 Falling back to simple embedding")
             return self._generate_fallback_embedding(text)
     
@@ -124,15 +175,35 @@ class GeminiService:
         max_tokens: int = 1000,
         temperature: float = 0.05  # ENHANCED: Much lower for factual accuracy in document filling
     ) -> str:
-        """Generate response using Gemini with enhanced accuracy and fact-based approach"""
+        """Generate response using Gemini with enhanced accuracy and rate limiting"""
         try:
             if not self.available:
-                # Fallback response when API is not available
                 logger.warning("📝 Using fallback response (Google API not available)")
                 if context:
                     return f"I have access to {len(context)} document chunks, but I cannot generate detailed responses without the Google Gemini API. Please configure the GOOGLE_API_KEY in your .env file."
                 else:
                     return "I cannot generate responses without the Google Gemini API. Please configure the GOOGLE_API_KEY in your .env file."
+            
+            # Initialize rate limiting if needed
+            if not hasattr(self, 'generation_requests'):
+                self.generation_requests = 0
+                self.last_reset = time.time()
+                self.generation_rate_limit = 30  # requests per minute
+            
+            # Check and reset rate limit counter
+            current_time = time.time()
+            if current_time - self.last_reset >= 60:
+                self.generation_requests = 0
+                self.last_reset = current_time
+            
+            # Apply rate limiting
+            if self.generation_requests >= self.generation_rate_limit:
+                wait_time = 60 - (current_time - self.last_reset)
+                if wait_time > 0:
+                    logger.warning(f"⏳ Rate limit reached, waiting {wait_time:.1f}s")
+                    await asyncio.sleep(wait_time)
+                    self.generation_requests = 0
+                    self.last_reset = time.time()
             
             model = genai.GenerativeModel(self.generation_model)
             

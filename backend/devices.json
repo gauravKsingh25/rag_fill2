@@ -6,7 +6,7 @@
     "namespace": "device_alpha",
     "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
     "max_documents": 100,
-    "embedding_model": "models/embedding-001",
+    "embedding_model": "models/gemini-embedding-001",
     "created_at": "2025-01-01T00:00:00Z",
     "is_active": true
   },
@@ -17,7 +17,7 @@
     "namespace": "device_beta",
     "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
     "max_documents": 100,
-    "embedding_model": "models/embedding-001",
+    "embedding_model": "models/gemini-embedding-001",
     "created_at": "2025-01-01T00:00:00Z",
     "is_active": true
   },
@@ -28,7 +28,7 @@
     "namespace": "device_charlie",
     "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
     "max_documents": 100,
-    "embedding_model": "models/embedding-001",
+    "embedding_model": "models/gemini-embedding-001",
     "created_at": "2025-01-01T00:00:00Z",
     "is_active": true
   },
@@ -39,7 +39,7 @@
     "namespace": "device_delta",
     "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
     "max_documents": 100,
-    "embedding_model": "models/embedding-001",
+    "embedding_model": "models/gemini-embedding-001",
     "created_at": "2025-01-01T00:00:00Z",
     "is_active": true
   },
@@ -50,7 +50,7 @@
     "namespace": "device_echo", 
     "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
     "max_documents": 100,
-    "embedding_model": "models/embedding-001",
+    "embedding_model": "models/gemini-embedding-001",
     "created_at": "2025-01-01T00:00:00Z",
     "is_active": true
   },
@@ -61,7 +61,7 @@
     "namespace": "device_dcx",
     "allowed_file_types": [".pdf", ".docx", ".txt", ".md"],
     "max_documents": 100,
-    "embedding_model": "models/embedding-001",
+    "embedding_model": "models/gemini-embedding-001",
     "created_at": "2025-01-22T00:00:00Z",
     "is_active": true
   }

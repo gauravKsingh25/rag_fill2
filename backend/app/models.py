@@ -41,7 +41,7 @@ class Device(BaseModel):
     namespace: str = Field(..., description="Pinecone namespace for device isolation")
     allowed_file_types: List[str] = Field(default=[".pdf", ".docx", ".txt"], description="Allowed file extensions")
     max_documents: int = Field(default=100, description="Maximum number of documents per device")
-    embedding_model: str = Field(default="models/embedding-001", description="Embedding model to use")
+    embedding_model: str = Field(default="models/gemini-embedding-001", description="Embedding model to use")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True)
 
