@@ -212,7 +212,7 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
             <div className="mt-4 text-sm text-muted">
               <p className="font-semibold mb-2">💡 Tips:</p>
               <ul className="space-y-1 text-left inline-block">
-                <li>• Ask specific questions: "What is the model number?"</li>
+                <li>• Ask specific questions: &quot;What is the model number?&quot;</li>
                 <li>• Use clear, direct phrasing</li>
                 <li>• System will state when info is not available</li>
               </ul>
@@ -300,4 +300,3 @@ export default function ChatInterface({ deviceId }: ChatInterfaceProps) {
     </div>
   );
 }
-     

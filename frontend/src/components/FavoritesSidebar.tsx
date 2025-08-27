@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FiDownload, FiTrash2 } from 'react-icons/fi';
 import type { FileHistoryItem } from './FileHistory';
-import { API_BASE_URL } from '@/config/api';
 
 export default function FavoritesSidebar() {
   const [favorites, setFavorites] = useState<FileHistoryItem[]>([]);
@@ -14,7 +13,7 @@ export default function FavoritesSidebar() {
 
   const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').trim() || 'http://localhost:8000';
 
-  async function loadFavorites() {
+  const loadFavorites = useCallback(async function loadFavorites() {
     setLoading(true);
     setError(null);
     try {
@@ -28,11 +27,11 @@ export default function FavoritesSidebar() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [API_BASE]);
 
   useEffect(() => {
     loadFavorites();
-  }, []);
+  }, [loadFavorites]);
 
   const DEFAULT_FAVORITE_TYPE = 'filled';
 
