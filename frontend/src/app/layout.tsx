@@ -1,23 +1,22 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import AuthGuard from "@/components/auth/AuthGuard";
 import Navigation from "@/components/Navigation";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
   title: "RAG System - Multi-Device Knowledge Base",
   description: "Advanced RAG system with device isolation and template processing",
+  keywords: ["RAG", "AI", "Document Processing", "Machine Learning", "Knowledge Base"],
+  authors: [{ name: "RAG System Team" }],
+  viewport: "width=device-width, initial-scale=1",
 };
 
 export default function RootLayout({
@@ -28,14 +27,14 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning={true}>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${inter.variable} font-inter antialiased`}
         suppressHydrationWarning={true}
       >
         <AuthProvider>
           <AuthGuard>
-            <div className="min-h-screen bg-gray-50">
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
               <Navigation />
-              <main className="py-6">
+              <main className="w-full">
                 {children}
               </main>
             </div>

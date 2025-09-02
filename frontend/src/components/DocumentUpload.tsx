@@ -1,7 +1,27 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  FiUpload, 
+  FiX, 
+  FiLoader, 
+  FiFile, 
+  FiRefreshCw,
+  FiDatabase,
+  FiCheckCircle,
+  FiAlertCircle,
+  FiTrash2,
+  FiClock
+} from 'react-icons/fi';
 import { documentApi, ApiError } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+
+interface DocumentUploadProps {
+  deviceId: string;
+}
 
 interface Document {
   document_id: string;
@@ -9,13 +29,35 @@ interface Document {
   file_size: number;
   file_type: string;
   upload_timestamp: string;
-  chunk_count: number;
   processed: boolean;
+  chunk_count: number;
 }
 
-interface DocumentUploadProps {
-  deviceId: string;
-}
+const containerVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.6,
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, x: -20 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.4 }
+  },
+  exit: {
+    opacity: 0,
+    x: 20,
+    transition: { duration: 0.3 }
+  }
+};
 
 export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
   const [uploading, setUploading] = useState(false);
@@ -24,6 +66,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocuments = useCallback(async () => {
@@ -72,11 +115,11 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     setUploading(true);
     setError(null);
     setSuccess(null);
+    setUploadProgress(0);
 
     try {
       const result = await documentApi.upload(file, deviceId, (progress) => {
-        // You can use progress for a progress bar if needed
-        console.log(`Upload progress: ${progress}%`);
+        setUploadProgress(progress);
       });
 
       // Extract chunks created from the message or use 0 as fallback
@@ -100,6 +143,7 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
       }
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -133,141 +177,276 @@ export default function DocumentUpload({ deviceId }: DocumentUploadProps) {
     return new Date(timestamp).toLocaleString();
   };
 
+  const clearMessages = () => {
+    setError(null);
+    setSuccess(null);
+  };
+
   return (
-    <div className="space-y-6">
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="w-full space-y-6"
+    >
       {/* Upload Section */}
-      <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Upload Documents to Device {deviceId}
-        </h3>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-               Select Document
-             </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.docx,.txt,.md,.csv"
-              onChange={handleFileUpload}
-              disabled={uploading}
-              className="hidden"
-            />
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="btn-primary"
-              >
-                {uploading ? 'Uploading...' : 'Choose file'}
-              </button>
-               <div className="text-sm text-gray-600">
-                 {selectedFileName ? <span className="font-medium">{selectedFileName}</span> : <span className="italic text-gray-400">No file selected</span>}
-               </div>
-              {selectedFileName && (
-                <button
-                  onClick={() => { if (fileInputRef.current) fileInputRef.current.value = ''; setSelectedFileName(null); }}
-                  className="text-sm text-red-500 hover:underline"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Supported formats: PDF, DOCX, TXT, MD, CSV (max 10MB)
-              </p>
-            </div>
-
-          {uploading && (
-            <div className="flex items-center space-x-2 text-blue-600">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              <span className="text-sm">Processing document...</span>
-            </div>
-          )}
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-              <div className="text-red-700 text-sm">{error}</div>
-            </div>
-          )}
-
-          {success && (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-              <div className="text-green-700 text-sm">{success}</div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Documents List */}
-      <div className="card">
-        <div className="px-6 py-4 border-b">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Uploaded Documents
-            </h3>
-            <button
-              onClick={fetchDocuments}
-              disabled={loading}
-              className="btn-ghost"
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
-          </div>
-        </div>
-
-        <div className="divide-y divide-gray-200">
-          {documents.length === 0 ? (
-            <div className="px-6 py-8 text-center">
-              <div className="text-gray-400 mb-2">
-                <svg className="mx-auto h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+      <motion.div variants={itemVariants}>
+        <Card className="hover:shadow-lg transition-all duration-300">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <FiUpload className="h-5 w-5 text-blue-600" />
               </div>
-              <p className="text-gray-600">No documents uploaded yet</p>
-            </div>
-          ) : (
-            documents.map((doc) => (
-              <div key={doc.document_id} className="px-6 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex-shrink-0">
-                        <div className={`w-2 h-2 rounded-full ${doc.processed ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+              <span>Document Upload</span>
+              {documents.length > 0 && (
+                <Badge variant="secondary">
+                  {documents.length} document{documents.length !== 1 ? 's' : ''}
+                </Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Upload documents to device <strong>{deviceId}</strong> for intelligent processing and vector indexing. 
+              Supported formats: PDF, DOCX, TXT, MD, CSV (max 10MB)
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent>
+            <div className="space-y-6">
+              {/* File Upload Area */}
+              <div className="relative group">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md,.csv"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+                />
+                <motion.div 
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 ${
+                    uploading 
+                      ? 'border-blue-300 bg-blue-50' 
+                      : 'border-gray-300 bg-gray-50 group-hover:border-blue-400 group-hover:bg-blue-50'
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-4">
+                    <motion.div
+                      animate={uploading ? { rotate: 360 } : {}}
+                      transition={{ duration: 1, repeat: uploading ? Infinity : 0, ease: "linear" }}
+                    >
+                      {uploading ? (
+                        <FiLoader className="w-8 h-8 text-blue-500" />
+                      ) : (
+                        <FiUpload className="w-8 h-8 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                      )}
+                    </motion.div>
+                    <div>
+                      <div className="font-medium text-gray-700">
+                        {uploading ? 'Processing document...' : 'Click to upload or drag and drop'}
                       </div>
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-900">{doc.filename}</h4>
-                        <div className="text-xs text-gray-500 space-x-4">
-                          <span>{formatFileSize(doc.file_size)}</span>
-                          <span>{doc.file_type.toUpperCase()}</span>
-                          <span>{doc.chunk_count} chunks</span>
-                          <span>{formatTimestamp(doc.upload_timestamp)}</span>
-                        </div>
+                      <div className="text-sm text-gray-500 mt-1">
+                        PDF, DOCX, TXT, MD, CSV files supported (max 10MB)
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 text-xs rounded-full ${
-                      doc.processed 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {doc.processed ? 'Processed' : 'Processing'}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteDocument(doc.document_id)}
-                      className="text-sm text-red-600 hover:text-red-800 btn-ghost"
-                    >
-                      Delete
-                    </button>
+                </motion.div>
+              </div>
+
+              {/* Upload Progress */}
+              <AnimatePresence>
+                {uploading && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="p-4 bg-blue-50 border border-blue-200 rounded-lg"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <FiLoader className="w-4 h-4 text-blue-500 animate-spin" />
+                      <span className="text-sm font-medium text-gray-700">
+                        Uploading {selectedFileName}...
+                      </span>
+                      <span className="text-sm text-gray-500 ml-auto">
+                        {uploadProgress}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <motion.div
+                        className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${uploadProgress}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Messages */}
+              <AnimatePresence>
+                {(error || success) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className={`p-4 rounded-lg border ${
+                      error 
+                        ? 'bg-red-50 border-red-200 text-red-800' 
+                        : 'bg-green-50 border-green-200 text-green-800'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {error ? (
+                        <FiAlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <FiCheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <div className="font-medium">{error || success}</div>
+                      </div>
+                      <button
+                        onClick={clearMessages}
+                        className="text-current hover:opacity-70 transition-opacity"
+                      >
+                        <FiX className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Documents Library */}
+      <motion.div variants={itemVariants}>
+        <Card className="hover:shadow-lg transition-all duration-300">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center space-x-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <FiDatabase className="h-5 w-5 text-green-600" />
                   </div>
+                  <span>Document Library</span>
+                </CardTitle>
+                <CardDescription>
+                  {documents.length} document{documents.length !== 1 ? 's' : ''} in knowledge base
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={fetchDocuments}
+                disabled={loading}
+                className="h-9 w-9 p-0"
+                title="Refresh documents"
+              >
+                <FiRefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </CardHeader>
+          
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="flex items-center gap-3 text-gray-500">
+                  <FiLoader className="w-5 h-5 animate-spin" />
+                  <span>Loading documents...</span>
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+            ) : documents.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center py-12"
+              >
+                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <FiFile className="w-8 h-8 text-gray-400" />
+                </div>
+                <h4 className="text-lg font-semibold text-gray-700 mb-2">No documents yet</h4>
+                <p className="text-gray-500">Upload your first document to get started</p>
+              </motion.div>
+            ) : (
+              <div className="space-y-4">
+                <AnimatePresence mode="popLayout">
+                  {documents.map((doc) => (
+                    <motion.div
+                      key={doc.document_id}
+                      variants={itemVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      layout
+                      className="group relative"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-300" />
+                      
+                      <div className="relative p-5 bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl hover:shadow-lg hover:border-gray-300/50 transition-all duration-300">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4 flex-1 min-w-0">
+                            {/* Status Icon */}
+                            <div className="flex-shrink-0">
+                              <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                                doc.processed ? 'bg-green-100 border border-green-200' : 'bg-yellow-100 border border-yellow-200'
+                              }`}>
+                                {doc.processed ? (
+                                  <FiCheckCircle className="w-6 h-6 text-green-600" />
+                                ) : (
+                                  <FiClock className="w-6 h-6 text-yellow-600" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Document Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <h4 className="text-sm font-semibold text-gray-900 truncate" title={doc.filename}>
+                                  {doc.filename}
+                                </h4>
+                                <Badge variant={doc.processed ? "success" : "warning"}>
+                                  {doc.processed ? 'Processed' : 'Processing'}
+                                </Badge>
+                              </div>
+                              
+                              <div className="flex items-center space-x-4 text-xs text-gray-500">
+                                <span>{formatFileSize(doc.file_size)}</span>
+                                <span className="px-2 py-1 bg-gray-100 rounded-md font-medium uppercase">
+                                  {doc.file_type}
+                                </span>
+                                <span>{doc.chunk_count} chunks</span>
+                                <span className="flex items-center space-x-1">
+                                  <FiClock className="h-3 w-3" />
+                                  <span>{formatTimestamp(doc.upload_timestamp)}</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Actions */}
+                          <div className="flex items-center space-x-2 ml-4">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteDocument(doc.document_id)}
+                              className="h-9 w-9 p-0 hover:bg-red-50 hover:text-red-600"
+                              title="Delete document"
+                            >
+                              <FiTrash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+    </motion.div>
   );
 }

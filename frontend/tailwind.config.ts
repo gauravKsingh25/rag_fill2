@@ -1,0 +1,116 @@
+import type { Config } from 'tailwindcss'
+
+const config: Config = {
+  content: [
+    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: 'var(--primary-50)',
+          100: 'var(--primary-100)',
+          500: 'var(--primary-500)',
+          600: 'var(--primary-600)',
+          700: 'var(--primary-700)',
+          800: 'var(--primary-800)',
+          900: 'var(--primary-900)',
+        },
+        success: {
+          50: 'var(--success-50)',
+          100: 'var(--success-100)',
+          500: 'var(--success-500)',
+          600: 'var(--success-600)',
+        },
+        warning: {
+          50: 'var(--warning-50)',
+          100: 'var(--warning-100)',
+          500: 'var(--warning-500)',
+          600: 'var(--warning-600)',
+        },
+        danger: {
+          50: 'var(--danger-50)',
+          100: 'var(--danger-100)',
+          500: 'var(--danger-500)',
+          600: 'var(--danger-600)',
+        },
+        gray: {
+          50: 'var(--gray-50)',
+          100: 'var(--gray-100)',
+          200: 'var(--gray-200)',
+          300: 'var(--gray-300)',
+          400: 'var(--gray-400)',
+          500: 'var(--gray-500)',
+          600: 'var(--gray-600)',
+          700: 'var(--gray-700)',
+          800: 'var(--gray-800)',
+          900: 'var(--gray-900)',
+        },
+        surface: 'var(--surface)',
+        'surface-elevated': 'var(--surface-elevated)',
+        border: 'var(--border)',
+        'border-light': 'var(--border-light)',
+        'border-hover': 'var(--border-hover)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-tertiary': 'var(--text-tertiary)',
+        'text-inverse': 'var(--text-inverse)',
+        'bg-primary': 'var(--bg-primary)',
+        'bg-secondary': 'var(--bg-secondary)',
+      },
+      fontFamily: {
+        inter: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+      },
+      fontSize: {
+        'xs': ['0.75rem', { lineHeight: '1rem' }],
+        'sm': ['0.875rem', { lineHeight: '1.25rem' }],
+        'base': ['1rem', { lineHeight: '1.5rem' }],
+        'lg': ['1.125rem', { lineHeight: '1.75rem' }],
+        'xl': ['1.25rem', { lineHeight: '1.75rem' }],
+        '2xl': ['1.5rem', { lineHeight: '2rem' }],
+        '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
+        '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+      },
+      borderRadius: {
+        'sm': 'var(--radius-sm)',
+        'DEFAULT': 'var(--radius)',
+        'md': 'var(--radius-md)',
+        'lg': 'var(--radius-lg)',
+        'xl': 'var(--radius-xl)',
+      },
+      boxShadow: {
+        'xs': 'var(--shadow-xs)',
+        'sm': 'var(--shadow-sm)',
+        'DEFAULT': 'var(--shadow-md)',
+        'md': 'var(--shadow-md)',
+        'lg': 'var(--shadow-lg)',
+        'xl': 'var(--shadow-xl)',
+        '2xl': 'var(--shadow-2xl)',
+        'inner': 'var(--shadow-inner)',
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.5s cubic-bezier(0.215, 0.61, 0.355, 1)',
+        'slide-up': 'slideUp 0.4s cubic-bezier(0.215, 0.61, 0.355, 1)',
+        'slide-down': 'slideDown 0.3s cubic-bezier(0.215, 0.61, 0.355, 1)',
+        'float': 'float 3s ease-in-out infinite',
+        'spin': 'spin 1s linear infinite',
+        'bounce': 'bounce 1.4s ease-in-out infinite both',
+      },
+      transitionTimingFunction: {
+        'out-cubic': 'var(--ease-out-cubic)',
+        'in-out-cubic': 'var(--ease-in-out-cubic)',
+      },
+      backgroundImage: {
+        'gradient-primary': 'var(--gradient-primary)',
+        'gradient-success': 'var(--gradient-success)',
+        'gradient-danger': 'var(--gradient-danger)',
+        'gradient-surface': 'var(--gradient-surface)',
+      },
+    },
+  },
+  plugins: [],
+}
+
+export default config

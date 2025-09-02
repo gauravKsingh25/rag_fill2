@@ -259,6 +259,42 @@ class PineconeService:
             logger.error(f"❌ Failed to search vectors: {e}")
             return []
     
+    async def query_vectors(
+        self, 
+        query_vector: List[float], 
+        device_id: str,
+        top_k: int = 5,
+        filter: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Query vectors - wrapper around search_vectors for compatibility
+        Returns results in a different format for interpreted_form_service
+        """
+        try:
+            # Use the existing search_vectors method
+            search_results = await self.search_vectors(
+                query_vector=query_vector,
+                device_id=device_id,
+                top_k=top_k,
+                filter_metadata=filter,
+                include_low_quality=True  # For form filling, we want all available data
+            )
+            
+            # Convert to the expected format
+            results = []
+            for result in search_results:
+                results.append({
+                    'text': result.content,
+                    'metadata': result.metadata,
+                    'score': result.score
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to query vectors: {e}")
+            return []
+    
     def _enhance_search_results(self, search_results: List[VectorSearchResult], target_count: int) -> List[VectorSearchResult]:
         """Enhance search results with quality filtering and diversity"""
         try:
