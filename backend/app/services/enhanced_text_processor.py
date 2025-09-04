@@ -377,12 +377,35 @@ class EnhancedTextProcessor:
             return 0.5  # Default to medium quality
     
     def should_include_chunk(self, chunk_text: str, min_quality: float = None) -> bool:
-        """Determine if a chunk should be included based on quality"""
+        """Determine if a chunk should be included based on quality with CSV awareness"""
         if min_quality is None:
             min_quality = self.min_chunk_quality
             
-        quality = self.assess_chunk_quality(chunk_text)
-        include = quality >= min_quality
+        # Special handling for CSV content
+        if self._is_csv_content(chunk_text):
+            # More lenient for CSV records but stricter for completeness
+            if "[CSV_RECORD_" in chunk_text:
+                # Person records need higher completeness
+                field_count = chunk_text.count(':')
+                filled_fields = len([line for line in chunk_text.split('\n') 
+                                   if ':' in line and not any(empty in line for empty in ['[EMPTY_FIELD]', '[NEEDS_FILLING]'])])
+                
+                if field_count > 0:
+                    completeness = filled_fields / field_count
+                    if completeness < 0.3:  # Less than 30% filled
+                        logger.info(f"🚫 Excluding incomplete CSV record (completeness: {completeness:.2f}): {chunk_text[:100]}...")
+                        return False
+                
+            # Use standard quality for other CSV content
+            quality = self.assess_chunk_quality(chunk_text)
+            
+            # Lower threshold for CSV content but ensure minimum standards
+            csv_threshold = max(0.5, min_quality - 0.1)  # 10% more lenient
+            include = quality >= csv_threshold
+        else:
+            # Standard processing for non-CSV content
+            quality = self.assess_chunk_quality(chunk_text)
+            include = quality >= min_quality
         
         if not include:
             logger.info(f"🚫 Excluding low-quality chunk (score: {quality:.2f}): {chunk_text[:100]}...")
@@ -390,12 +413,25 @@ class EnhancedTextProcessor:
             logger.debug(f"✅ Including chunk (score: {quality:.2f})")
             
         return include
-    
+
+    def _is_csv_content(self, text: str) -> bool:
+        """Enhanced CSV content detection"""
+        csv_indicators = [
+            "[CSV_HEADER]", "[CSV_RECORD_", "[COLUMN_", "[PERSON_RECORD_",
+            "Dataset contains", "records with", "columns",
+            "Complete Person Data Record", "[AVAILABLE_DATA]", "[RECORD_STATUS]"
+        ]
+        return any(indicator in text for indicator in csv_indicators)
+
     def enhance_chunk_content(self, chunk_text: str) -> str:
-        """Enhance chunk content for better embedding and search"""
+        """Enhance chunk content for better embedding and search with CSV awareness"""
         try:
             # Clean the text first
             enhanced_text = self.clean_ocr_text(chunk_text)
+            
+            # Special enhancement for CSV content
+            if self._is_csv_content(enhanced_text):
+                enhanced_text = self._enhance_csv_chunk_content(enhanced_text)
             
             # Add context markers for better search
             # Detect and mark form fields
@@ -424,41 +460,104 @@ class EnhancedTextProcessor:
         except Exception as e:
             logger.warning(f"⚠️ Failed to enhance chunk content: {e}")
             return chunk_text
-    
-    def generate_chunk_summary(self, chunk_text: str) -> Dict[str, Any]:
-        """Generate a comprehensive summary of chunk content"""
+
+    def _enhance_csv_chunk_content(self, chunk_text: str) -> str:
+        """Enhance CSV chunk content specifically for better template filling"""
         try:
-            summary = {
-                'length': len(chunk_text),
-                'word_count': len(chunk_text.split()),
-                'quality_score': self.assess_chunk_quality(chunk_text),
-                'has_form_fields': bool(re.search(r'[A-Za-z\s]+:\s*(?:\w|$)', chunk_text)),
-                'has_table_data': '[TABLE DATA]' in chunk_text or '|' in chunk_text,
-                'has_technical_terms': any(term in chunk_text.lower() for term in self.medical_terms),
-                'encoding_issues': any(artifact in chunk_text for artifact in ['â€', 'Ã', 'ï¿½']),
-                'sentence_count': len(re.split(r'[.!?]+', chunk_text)),
-            }
+            enhanced = chunk_text
             
-            # Extract key terms
-            words = re.findall(r'\b[a-zA-Z]{3,}\b', chunk_text.lower())
-            word_freq = Counter(words)
-            summary['top_words'] = [word for word, count in word_freq.most_common(5)]
+            # Standardize field-value formatting
+            lines = enhanced.split('\n')
+            enhanced_lines = []
             
-            # Detect content type
-            if summary['has_form_fields']:
-                summary['content_type'] = 'form'
-            elif summary['has_table_data']:
-                summary['content_type'] = 'table'
-            elif summary['has_technical_terms']:
-                summary['content_type'] = 'technical'
-            else:
-                summary['content_type'] = 'general'
+            for line in lines:
+                if ':' in line and not line.startswith('['):
+                    field, value = line.split(':', 1)
+                    field = field.strip()
+                    value = value.strip()
+                    
+                    # Standardize field names for better matching
+                    standardized_field = self._standardize_field_name(field)
+                    
+                    # Enhance value formatting
+                    if value in ['[EMPTY_FIELD]', '[NEEDS_FILLING]', '']:
+                        enhanced_line = f"{standardized_field}: [TEMPLATE_FIELD_EMPTY]"
+                    else:
+                        # Clean and format the value
+                        cleaned_value = self.clean_ocr_text(value)
+                        enhanced_line = f"{standardized_field}: {cleaned_value}"
+                    
+                    enhanced_lines.append(enhanced_line)
+                else:
+                    enhanced_lines.append(line)
             
-            return summary
+            enhanced = '\n'.join(enhanced_lines)
+            
+            # Add template filling hints
+            if '[CSV_RECORD_' in enhanced:
+                enhanced += '\n[TEMPLATE_READY] This record is ready for template filling and form population.'
+            
+            return enhanced
             
         except Exception as e:
-            logger.warning(f"⚠️ Failed to generate chunk summary: {e}")
-            return {'error': str(e)}
+            logger.warning(f"⚠️ Failed to enhance CSV chunk content: {e}")
+            return chunk_text
+
+    def _standardize_field_name(self, field_name: str) -> str:
+        """Standardize field names for better template matching"""
+        try:
+            field_lower = field_name.lower().strip()
+            
+            # Common field name mappings
+            field_mappings = {
+                'device name': 'Device Name',
+                'device_name': 'Device Name',
+                'product name': 'Device Name',
+                'equipment name': 'Device Name',
+                
+                'model': 'Model Number',
+                'model number': 'Model Number',
+                'model_number': 'Model Number',
+                'model no': 'Model Number',
+                
+                'serial': 'Serial Number',
+                'serial number': 'Serial Number',
+                'serial_number': 'Serial Number',
+                'serial no': 'Serial Number',
+                
+                'manufacturer': 'Manufacturer',
+                'company': 'Manufacturer',
+                'vendor': 'Manufacturer',
+                'supplier': 'Manufacturer',
+                
+                'part number': 'Part Number',
+                'part_number': 'Part Number',
+                'part no': 'Part Number',
+                'catalog number': 'Part Number',
+                
+                'version': 'Version',
+                'revision': 'Version',
+                'software version': 'Version',
+                
+                'date': 'Date',
+                'manufacturing date': 'Manufacturing Date',
+                'production date': 'Manufacturing Date',
+                
+                'description': 'Description',
+                'details': 'Description',
+                'notes': 'Description',
+                'comments': 'Description'
+            }
+            
+            return field_mappings.get(field_lower, field_name.title())
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to standardize field name: {e}")
+            return field_name
+
+# Create global instance
+enhanced_text_processor = EnhancedTextProcessor()
+
 
 # Create global instance
 enhanced_text_processor = EnhancedTextProcessor()

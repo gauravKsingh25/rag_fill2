@@ -303,17 +303,16 @@ export default function FileHistory({ history }: FileHistoryProps) {
                                       animate={{ opacity: 1, scale: 1 }}
                                       exit={{ opacity: 0, scale: 0.8 }}
                                     >
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        asChild
-                                        className="h-9 w-9 p-0 hover:bg-blue-50 hover:text-blue-600"
-                                        title={`Download ${item.filename}`}
-                                      >
-                                        <a href={item.url} download>
+                                      <a href={item.url} download>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-9 w-9 p-0 hover:bg-blue-50 hover:text-blue-600"
+                                          title={`Download ${item.filename}`}
+                                        >
                                           <FiDownload className="h-4 w-4" />
-                                        </a>
-                                      </Button>
+                                        </Button>
+                                      </a>
                                     </motion.div>
                                   ) : (
                                     <Button
@@ -358,3 +357,4 @@ export default function FileHistory({ history }: FileHistoryProps) {
     </motion.div>
   );
 }
+

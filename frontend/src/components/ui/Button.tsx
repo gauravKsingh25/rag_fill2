@@ -20,17 +20,13 @@ const buttonSizes = {
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: keyof typeof buttonVariants;
   size?: keyof typeof buttonSizes;
-  asChild?: boolean;
 }
 
 const Button = React.forwardRef<
   HTMLButtonElement,
   ButtonProps & MotionProps
->(({ className, variant = "default", size = "default", disabled, asChild = false, ...props }, ref) => {
+>(({ className, variant = "default", size = "default", disabled, ...props }, ref) => {
   const baseClasses = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
-  
-  // Remove asChild from props to prevent it from being passed to DOM
-  const { asChild: _, ...domProps } = props;
 
   return (
     <motion.button
@@ -45,7 +41,7 @@ const Button = React.forwardRef<
       whileHover={{ scale: disabled ? 1 : 1.02 }}
       whileTap={{ scale: disabled ? 1 : 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 17 }}
-      {...domProps}
+      {...props}
     />
   );
 });

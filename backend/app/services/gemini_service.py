@@ -94,6 +94,57 @@ class GeminiService:
             logger.error(f"❌ Failed to pad/truncate embedding: {e}")
             return [0.0] * target_dim
     
+    def _estimate_token_count(self, text: str) -> int:
+        """
+        Estimate token count for text (rough approximation)
+        """
+        # Rough estimation: 1 token ≈ 0.75 words ≈ 4 characters
+        word_count = len(text.split())
+        char_count = len(text)
+        
+        # Use the higher estimate to be safe
+        estimated_tokens = max(word_count * 1.3, char_count / 3)
+        return int(estimated_tokens)
+    
+    def _truncate_context_smartly(self, text: str, max_chars: int = 25000) -> str:  # Reduced default
+        """
+        Intelligently truncate context while preserving important information
+        """
+        if len(text) <= max_chars:
+            return text
+        
+        # Split into sections
+        sections = text.split('\n\n')
+        
+        if len(sections) <= 5:  # Reduced from 10
+            # If few sections, just truncate
+            return text[:max_chars] + "\n\n[...TRUNCATED...]"
+        
+        # Keep first 30% and last 30%, summarize middle 40% - more aggressive truncation
+        keep_start = int(len(sections) * 0.3)  # Reduced from 0.4
+        keep_end = int(len(sections) * 0.3)    # Reduced from 0.4
+        
+        start_sections = sections[:keep_start]
+        end_sections = sections[-keep_end:]
+        
+        truncated_text = '\n\n'.join(start_sections)
+        truncated_text += '\n\n[...CONTENT TRUNCATED FOR LENGTH - MIDDLE SECTIONS OMITTED...]\n\n'
+        truncated_text += '\n\n'.join(end_sections)
+        
+        # Final length check with more aggressive truncation
+        if len(truncated_text) > max_chars:
+            # More aggressive final truncation
+            half_size = max_chars // 2
+            start_part = truncated_text[:half_size]
+            end_part = truncated_text[-half_size:]
+            truncated_text = start_part + "\n\n[...AGGRESSIVE TRUNCATION...]\n\n" + end_part
+            
+        # Ultimate fallback
+        if len(truncated_text) > max_chars:
+            truncated_text = truncated_text[:max_chars] + "\n\n[...FINAL TRUNCATION...]"
+        
+        return truncated_text
+
     async def get_embedding(self, text: str) -> List[float]:
         """Generate embeddings using Gemini with rate limiting and caching"""
         try:
@@ -106,6 +157,14 @@ class GeminiService:
             if text_hash in self.embedding_cache:
                 logger.debug("📝 Using cached embedding")
                 return self.embedding_cache[text_hash]
+            
+            # ENHANCED: Text length validation and truncation for embeddings
+            max_embedding_length = 1500  # Reduced from 2048 for better reliability
+            if len(text) > max_embedding_length:
+                logger.warning(f"⚠️ Text too long for embedding ({len(text)} chars), truncating...")
+                # Keep first part of text for embedding
+                text = text[:max_embedding_length] + "..."
+                logger.info(f"✅ Text truncated to {len(text)} chars for embedding")
             
             # Apply rate limiting
             current_time = time.time()
@@ -143,12 +202,34 @@ class GeminiService:
             return embedding
             
         except Exception as e:
-            if 'quota exceeded' in str(e).lower() or 'rate limit' in str(e).lower():
+            error_msg = str(e).lower()
+            
+            # Handle specific Google AI API errors
+            if 'quota exceeded' in error_msg or 'rate limit' in error_msg:
                 logger.error(f"⚠️ Rate limit or quota exceeded: {e}")
                 wait_time = 60
                 logger.info(f"⏳ Waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
                 return await self.get_embedding(text)  # Retry once
+            
+            elif '500' in error_msg and 'internal error' in error_msg:
+                logger.error(f"⚠️ Google API internal error: {e}")
+                logger.info("⏳ Waiting 30s before retry...")
+                await asyncio.sleep(30)
+                try:
+                    # Single retry for internal errors
+                    result = genai.embed_content(
+                        model=self.embedding_model,
+                        content=text,
+                        task_type="retrieval_document"
+                    )
+                    embedding = self._pad_or_truncate_embedding(result['embedding'], 1024)
+                    self.embedding_cache[text_hash] = embedding
+                    return embedding
+                except Exception as retry_e:
+                    logger.error(f"❌ Retry failed: {retry_e}")
+                    logger.warning("📝 Falling back to simple embedding")
+                    return self._generate_fallback_embedding(text)
             
             logger.error(f"❌ Failed to generate embedding: {e}")
             logger.warning("📝 Falling back to simple embedding")
@@ -207,10 +288,18 @@ class GeminiService:
             
             model = genai.GenerativeModel(self.generation_model)
             
-            # Build the full prompt for clean, simple responses
+            # ENHANCED: Context length validation and truncation
             if context:
                 # When context is provided separately (legacy mode)
                 context_text = "\n\n".join(context)
+                
+                # More aggressive context truncation to prevent 500 errors
+                max_context_length = 30000  # Reduced from 50000 for better reliability
+                if len(context_text) > max_context_length:
+                    logger.warning(f"⚠️ Context too long ({len(context_text)} chars), applying aggressive truncation...")
+                    context_text = self._truncate_context_smartly(context_text, max_context_length - 5000)
+                    logger.info(f"✅ Context truncated to {len(context_text)} chars")
+                
                 full_prompt = f"""Answer the user's question using only the information provided in the documents below. Give a clear, direct answer.
 
 DOCUMENTS:
@@ -230,6 +319,19 @@ ANSWER:"""
                 # When context is already included in the prompt (preferred mode)
                 full_prompt = prompt
             
+            # Enhanced length check and token estimation with lower limits
+            estimated_tokens = self._estimate_token_count(full_prompt)
+            max_safe_tokens = 500000  # Reduced from 800000 for better reliability
+            
+            if estimated_tokens > max_safe_tokens:
+                logger.warning(f"⚠️ Estimated tokens ({estimated_tokens}) exceed safe limit, using minimal prompt...")
+                # Use a much shorter prompt
+                short_question = prompt[:200] + "..." if len(prompt) > 200 else prompt  # Reduced from 300
+                full_prompt = f"""Please provide a brief answer to: {short_question}
+
+If you need more specific information, please ask a more focused question."""
+                logger.info(f"✅ Using minimal prompt (estimated tokens: {self._estimate_token_count(full_prompt)})")
+            
             response = model.generate_content(
                 full_prompt,
                 generation_config=genai.types.GenerationConfig(
@@ -241,6 +343,88 @@ ANSWER:"""
             return response.text
             
         except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Handle specific Google AI API errors
+            if 'quota exceeded' in error_msg or 'rate limit' in error_msg:
+                logger.error(f"⚠️ Rate limit or quota exceeded: {e}")
+                await asyncio.sleep(60)
+                try:
+                    # Single retry for rate limits
+                    response = await model.generate_content_async(
+                        full_prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            max_output_tokens=max_tokens,
+                            temperature=temperature,
+                            top_p=0.1,
+                            top_k=10
+                        )
+                    )
+                    return response.text
+                except Exception as retry_e:
+                    logger.error(f"❌ Retry failed: {retry_e}")
+                    return "The API is currently experiencing high demand. Please try again in a few minutes."
+            
+            elif '500' in error_msg and 'internal error' in error_msg:
+                logger.error(f"⚠️ Google API internal error: {e}")
+                
+                # Enhanced handling for 500 errors - likely context/input issues
+                logger.warning("🔍 Attempting to resolve 500 error with reduced input size")
+                
+                # Try multiple strategies to handle 500 errors
+                retry_strategies = [
+                    # Strategy 1: Minimal context retry
+                    {
+                        'name': 'minimal_context',
+                        'prompt': f"Please help with: {prompt[:300]}...",
+                        'max_tokens': min(max_tokens, 200),
+                        'wait_time': 10
+                    },
+                    # Strategy 2: Super minimal retry
+                    {
+                        'name': 'super_minimal',
+                        'prompt': f"Answer briefly: {prompt[:150]}",
+                        'max_tokens': 100,
+                        'wait_time': 20
+                    },
+                    # Strategy 3: Template-specific minimal retry for form filling
+                    {
+                        'name': 'form_specific',
+                        'prompt': f"Extract one piece of information: {prompt[:200]}",
+                        'max_tokens': 50,
+                        'wait_time': 30
+                    }
+                ]
+                
+                for strategy in retry_strategies:
+                    try:
+                        logger.info(f"🔄 Trying {strategy['name']} strategy for 500 error")
+                        await asyncio.sleep(strategy['wait_time'])
+                        
+                        # Use synchronous call for reliability
+                        model = genai.GenerativeModel(self.generation_model)
+                        response = model.generate_content(
+                            strategy['prompt'],
+                            generation_config=genai.types.GenerationConfig(
+                                max_output_tokens=strategy['max_tokens'],
+                                temperature=0.1,
+                                top_p=0.8,
+                                top_k=20
+                            )
+                        )
+                        
+                        if response and response.text:
+                            logger.info(f"✅ {strategy['name']} strategy succeeded")
+                            return response.text
+                            
+                    except Exception as strategy_e:
+                        logger.warning(f"❌ {strategy['name']} strategy failed: {strategy_e}")
+                        continue
+                
+                # If all strategies fail, return informative message
+                logger.error("❌ All retry strategies failed for 500 error")
+                return "The Google AI service is experiencing issues. The content may be too complex or long for processing. Please try with simpler input or try again later."
+            
             logger.error(f"❌ Failed to generate response: {e}")
             # Fallback response on error
             return "I encountered an error generating the response. Please check the logs and ensure the Google API key is properly configured."

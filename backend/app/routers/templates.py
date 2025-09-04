@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 import uuid
@@ -18,6 +18,7 @@ from app.routers.devices import get_device
 from app.services import gcs_service
 from app.database import mongodb
 from app.routers.file_history import add_file_to_history
+from app.services.file_cleanup_service import file_cleanup_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1026,13 +1027,22 @@ def extract_field_name_from_context(line: str, match_position: int, matched_text
     return extract_field_name_from_context_enhanced(line, match_position, matched_text, 'UNKNOWN')
 
 @router.get("/download/{filename}")
-async def download_filled_template(filename: str):
-    """Download a filled template file"""
+async def download_filled_template(filename: str, background_tasks: BackgroundTasks):
+    """Download a filled template file and schedule cleanup after download"""
     try:
         file_path = Path("./filled_templates") / filename
         
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Template file not found")
+        
+        # Schedule file cleanup after download (30 seconds delay to ensure download completes)
+        background_tasks.add_task(
+            file_cleanup_service.schedule_file_cleanup,
+            str(file_path),
+            30  # 30 seconds delay
+        )
+        
+        logger.info(f"📥 Downloading template: {filename} (cleanup scheduled)")
         
         return FileResponse(
             path=str(file_path),
@@ -1202,13 +1212,22 @@ async def upload_and_fill_csv(
         raise HTTPException(status_code=500, detail=f"Failed to process CSV: {e}")
 
 @router.get("/download-csv/{filename}")
-async def download_filled_csv(filename: str):
-    """Download a filled CSV file"""
+async def download_filled_csv(filename: str, background_tasks: BackgroundTasks):
+    """Download a filled CSV file and schedule cleanup after download"""
     try:
         file_path = Path("./filled_templates") / filename
         
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="CSV file not found")
+        
+        # Schedule file cleanup after download (30 seconds delay to ensure download completes)
+        background_tasks.add_task(
+            file_cleanup_service.schedule_file_cleanup,
+            str(file_path),
+            30  # 30 seconds delay
+        )
+        
+        logger.info(f"📥 Downloading CSV: {filename} (cleanup scheduled)")
         
         return FileResponse(
             path=str(file_path),

@@ -11,16 +11,12 @@ const cardVariants = {
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: keyof typeof cardVariants;
-  asChild?: boolean;
 }
 
 const Card = React.forwardRef<
   HTMLDivElement,
   CardProps & MotionProps
->(({ className, variant = "default", children, asChild = false, ...props }, ref) => {
-    // Remove asChild from props to prevent it from being passed to DOM
-    const { asChild: _, ...domProps } = props;
-    
+>(({ className, variant = "default", children, ...props }, ref) => {
     return (
       <motion.div
         ref={ref}
@@ -36,7 +32,7 @@ const Card = React.forwardRef<
           scale: 1.01,
           boxShadow: "0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)"
         }}
-        {...domProps}
+        {...props}
       >
         {children}
       </motion.div>

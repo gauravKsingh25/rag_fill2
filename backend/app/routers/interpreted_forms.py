@@ -589,3 +589,36 @@ async def get_form_template(form_type: str):
         raise HTTPException(status_code=404, detail="Form template not found")
     
     return FORM_TEMPLATES[form_type]
+
+@router.delete("/interpreted-forms/cleanup-person-data/{person_id}")
+async def cleanup_specific_person_data(person_id: str):
+    """
+    Clean up data for a specific person
+    """
+    try:
+        result = await interpreted_form_service.cleanup_person_data(person_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup person data: {str(e)}")
+
+@router.delete("/interpreted-forms/cleanup-all-person-data")
+async def cleanup_all_person_data():
+    """
+    Clean up ALL person data (for page refresh/reset)
+    """
+    try:
+        result = await interpreted_form_service.cleanup_all_person_data()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup all person data: {str(e)}")
+
+@router.get("/interpreted-forms/debug-person-data/{device_id}")
+async def debug_person_data(device_id: str, person_id: Optional[str] = None):
+    """
+    Debug endpoint to check stored person data
+    """
+    try:
+        result = await interpreted_form_service.debug_stored_data(device_id, person_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to debug person data: {str(e)}")

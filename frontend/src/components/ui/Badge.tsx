@@ -13,14 +13,10 @@ const badgeVariants = {
 
 interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: keyof typeof badgeVariants;
-  asChild?: boolean;
 }
 
-const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
-  ({ className, variant = "default", asChild = false, ...props }, ref) => {
-    // Remove asChild from props to prevent it from being passed to DOM
-    const { asChild: _, ...domProps } = props;
-    
+const Badge = React.forwardRef<HTMLDivElement, BadgeProps & MotionProps>(
+  ({ className, variant = "default", ...props }, ref) => {
     return (
       <motion.div
         ref={ref}
@@ -33,7 +29,7 @@ const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
         animate={{ scale: 1 }}
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
         whileHover={{ scale: 1.05 }}
-        {...domProps}
+        {...props}
       />
     );
   }

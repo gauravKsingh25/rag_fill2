@@ -6,11 +6,12 @@ from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
-from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history, favorites, google_vision_ocr_management, document_reverse_router, interpreted_forms
+from app.routers import devices, documents, chat, templates, auth, enhanced_csv_router, robust_csv_router, file_history, favorites, google_vision_ocr_management, document_reverse_router, interpreted_forms, deterministic_router, file_cleanup
 # OLD OCR ROUTERS - COMMENTED OUT FOR GOOGLE VISION MIGRATION
 # from app.routers import simple_ocr_management, ocr_management
 from app.database import connect_to_mongo, close_mongo_connection, user_repo
 from app.services.pinecone_service import pinecone_service
+from app.services.file_cleanup_service import file_cleanup_service
 from app.core.auth import get_password_hash
 
 load_dotenv()
@@ -68,6 +69,14 @@ async def lifespan(app: FastAPI):
             print(f"✅ First user already exists: {email}")
     except Exception as e:
         print(f"⚠️  Could not create first user: {e}")
+    
+    # Perform startup cleanup of old files
+    try:
+        cleanup_result = await file_cleanup_service.startup_cleanup()
+        if cleanup_result['success'] and cleanup_result.get('total_cleaned', 0) > 0:
+            print(f"🧹 Startup cleanup: {cleanup_result['message']}")
+    except Exception as e:
+        print(f"⚠️  Startup cleanup failed: {e}")
     
     # Report startup status
     if startup_errors:
@@ -146,9 +155,11 @@ app.include_router(documents.router, prefix="/api/documents", tags=["documents"]
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
 app.include_router(interpreted_forms.router, prefix="/api", tags=["interpreted-forms"])
+app.include_router(deterministic_router.router, tags=["deterministic-filling"])  # New deterministic document filling router
 app.include_router(enhanced_csv_router.router, tags=["enhanced-csv"])
 app.include_router(robust_csv_router.router, tags=["robust-csv"])
 app.include_router(file_history.router, prefix="/api/file-history", tags=["file-history"])
+app.include_router(file_cleanup.router, prefix="/api/file-cleanup", tags=["file-cleanup"])
 app.include_router(favorites.router)  # Include favorites router (router in favorites.py already defines its own prefix)
 app.include_router(google_vision_ocr_management.router, prefix="/api", tags=["google-vision-ocr"])
 app.include_router(document_reverse_router.router, tags=["document-reverse"])  # New document reverse processing router
