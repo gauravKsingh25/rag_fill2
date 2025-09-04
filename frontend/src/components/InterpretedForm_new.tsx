@@ -7,7 +7,6 @@ import {
   FiCheck, 
   FiX, 
   FiLoader, 
-  FiFile, 
   FiDownload, 
   FiRefreshCw,
   FiChevronDown,
@@ -681,16 +680,14 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
                     </CardDescription>
                   </div>
                   {batchDownloadUrl && (
-                    <Button asChild>
-                      <a
-                        href={`http://localhost:8000${batchDownloadUrl}`}
-                        download
-                        className="flex items-center space-x-2"
-                      >
-                        <FiDownload className="w-4 h-4" />
-                        <span>Download All (ZIP)</span>
-                      </a>
-                    </Button>
+                    <a
+                      href={`http://localhost:8000${batchDownloadUrl}`}
+                      download
+                      className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-slate-900 text-slate-50 hover:bg-slate-900/90 h-10 px-4 py-2 transition-colors space-x-2"
+                    >
+                      <FiDownload className="w-4 h-4" />
+                      <span>Download All (ZIP)</span>
+                    </a>
                   )}
                 </div>
               </CardHeader>
@@ -734,16 +731,14 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
                             </div>
                           </div>
                           {doc.success && (
-                            <Button variant="outline" size="sm" asChild>
-                              <a
-                                href={`http://localhost:8000${doc.download_url}`}
-                                download
-                                className="flex items-center space-x-2"
-                              >
-                                <FiDownload className="w-4 h-4" />
-                                <span>Download</span>
-                              </a>
-                            </Button>
+                            <a
+                              href={`http://localhost:8000${doc.download_url}`}
+                              download
+                              className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-slate-200 bg-white hover:bg-slate-100 hover:text-slate-900 h-9 px-3 transition-colors space-x-2"
+                            >
+                              <FiDownload className="w-4 h-4" />
+                              <span>Download</span>
+                            </a>
                           )}
                         </div>
                       </motion.div>
