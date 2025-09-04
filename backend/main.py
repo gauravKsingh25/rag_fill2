@@ -132,7 +132,7 @@ def get_cors_origins():
             "http://localhost:3001",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:3001"
-            "https://rag-fill2.onrender.com/"
+            
         ]
         for origin in dev_origins:
             if origin not in origins:
