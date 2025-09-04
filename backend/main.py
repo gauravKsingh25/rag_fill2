@@ -122,7 +122,7 @@ def get_cors_origins():
     origins = []
     
     # Add frontend URL from environment
-    frontend_url = os.getenv("FRONTEND_URL", "https://rag-fill2.onrender.com")
+    frontend_url = "https://rag-fill2.onrender.com"
     origins.append(frontend_url)
     
     # Add development URLs if in development mode
