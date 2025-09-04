@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Progress } from './ui/Progress';
 import { Badge } from './ui/Badge';
 import { Input } from './ui/Input';
+import { API_BASE_URL } from '@/config/api';
 import { 
   FiUpload, 
   FiFileText, 
@@ -206,7 +207,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
-      const response = await fetch('http://localhost:8000/api/templates/analyze', { method: 'POST', body: formData });
+      const response = await fetch(`${API_BASE_URL}/api/templates/analyze`, { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Analysis failed');
@@ -240,7 +241,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       formData.append('filling_mode', fillingMode);
       setProgress(5);
       setProgressStage('Uploading template...');
-      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill', { method: 'POST', body: formData });
+      const response = await fetch('${API_BASE_URL}/api/templates/upload-and-fill', { method: 'POST', body: formData });
       setProgress(15);
       setProgressStage('Template uploaded, analyzing...');
       if (!response.ok) {
@@ -251,11 +252,11 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       setProgress(100);
       setProgressStage('Template processing completed!');
       setSuccess(`Template processed successfully using ${fillingMode} mode! Filled ${Object.keys(result.filled_fields).length} fields.`);
-      setDownloadUrl(`http://localhost:8000${result.filled_template_url}`);
+      setDownloadUrl(`${API_BASE_URL}${result.filled_template_url}`);
       console.log('Template processing result:', result);
-      console.log('Calling onFileHistoryUpdate with:', { filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
+      console.log('Calling onFileHistoryUpdate with:', { filename: result.template_filename, type: 'filled', url: `${API_BASE_URL}${result.filled_template_url}`, timestamp: new Date().toISOString() });
       if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.template_filename, type: 'filled', url: `http://localhost:8000${result.filled_template_url}`, timestamp: new Date().toISOString() });
+        onFileHistoryUpdate({ filename: result.template_filename, type: 'filled', url: `${API_BASE_URL}${result.filled_template_url}`, timestamp: new Date().toISOString() });
         console.log('onFileHistoryUpdate called successfully for template');
       } else {
         console.log('onFileHistoryUpdate is not available for template');
@@ -283,7 +284,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const formData = new FormData();
       formData.append('file', file);
       formData.append('device_id', deviceId);
-      const response = await fetch('http://localhost:8000/api/templates/analyze-csv', { method: 'POST', body: formData });
+      const response = await fetch('${API_BASE_URL}/api/templates/analyze-csv', { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'CSV analysis failed');
@@ -313,7 +314,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       formData.append('file', file);
       formData.append('device_id', deviceId);
       formData.append('filling_mode', fillingMode);
-      const response = await fetch('http://localhost:8000/api/templates/upload-and-fill-csv', { method: 'POST', body: formData });
+      const response = await fetch('${API_BASE_URL}/api/templates/upload-and-fill-csv', { method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'CSV processing failed');
@@ -321,11 +322,11 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
       const result = await response.json();
       console.log('CSV processing result:', result);
       setCsvSuccess(`CSV processed successfully! Filled ${result.filled_cells} cells using ${fillingMode} mode.`);
-      setCsvDownloadUrl(`http://localhost:8000${result.filled_csv_url}`);
-      console.log('Set CSV download URL to:', `http://localhost:8000${result.filled_csv_url}`);
-      console.log('Calling onFileHistoryUpdate with:', { filename: result.filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
+      setCsvDownloadUrl(`${API_BASE_URL}${result.filled_csv_url}`);
+      console.log('Set CSV download URL to:', `${API_BASE_URL}${result.filled_csv_url}`);
+      console.log('Calling onFileHistoryUpdate with:', { filename: result.filename, type: 'filled', url: `${API_BASE_URL}${result.filled_csv_url}`, timestamp: new Date().toISOString() });
       if (onFileHistoryUpdate) {
-        onFileHistoryUpdate({ filename: result.filename, type: 'filled', url: `http://localhost:8000${result.filled_csv_url}`, timestamp: new Date().toISOString() });
+        onFileHistoryUpdate({ filename: result.filename, type: 'filled', url: `${API_BASE_URL}${result.filled_csv_url}`, timestamp: new Date().toISOString() });
         console.log('onFileHistoryUpdate called successfully for CSV');
       } else {
         console.log('onFileHistoryUpdate is not available for CSV');
@@ -369,7 +370,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
         onFileHistoryUpdate({
           filename: result.template_filename,
           type: 'filled', // Using 'filled' type as it's the closest available
-          url: `http://localhost:8000${result.download_url}`,
+          url: `${API_BASE_URL}${result.download_url}`,
           timestamp: new Date().toISOString()
         });
         console.log('Added blank template to file history');
@@ -454,7 +455,7 @@ export default function TemplateProcessor({ deviceId, onFileHistoryUpdate }: Tem
     }
     console.log('Downloading blank template from:', reverseDownloadUrl);
     const a = document.createElement('a');
-    a.href = `http://localhost:8000${reverseDownloadUrl}`;
+    a.href = `${API_BASE_URL}${reverseDownloadUrl}`;
     a.download = '';
     document.body.appendChild(a);
     a.click();

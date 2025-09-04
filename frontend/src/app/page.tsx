@@ -7,6 +7,7 @@ import DocumentUpload from '@/components/DocumentUpload';
 import TemplateProcessor from '@/components/TemplateProcessor';
 import FavoritesSidebar from '@/components/FavoritesSidebar';
 import FileHistory, { FileHistoryItem } from '@/components/FileHistory';
+import { API_BASE_URL } from '@/config/api';
 
 export default function Home() {
 	const [selectedDevice, setSelectedDevice] = useState<string>('');
@@ -17,7 +18,7 @@ export default function Home() {
 	useEffect(() => {
 		const loadFileHistory = async () => {
 			try {
-				const response = await fetch('http://localhost:8000/api/file-history/');
+				const response = await fetch(`${API_BASE_URL}/api/file-history/`);
 				if (response.ok) {
 					const history = await response.json();
 					setFileHistory(history);

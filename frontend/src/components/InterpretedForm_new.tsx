@@ -22,6 +22,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { API_BASE_URL } from '@/config/api';
 
 interface InterpretedFormProps {
   deviceId: string;
@@ -106,7 +107,7 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
       formData.append('device_id', deviceId);
       formData.append('data_file', file);
 
-      const response = await fetch('http://localhost:8000/api/interpreted-forms/upload-person-data/', {
+      const response = await fetch(`${API_BASE_URL}/api/interpreted-forms/upload-person-data/`, {
         method: 'POST',
         body: formData,
       });
@@ -158,7 +159,7 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
         formData.append('device_id', deviceId);
         formData.append('template_file', file);
 
-        const response = await fetch('http://localhost:8000/api/interpreted-forms/analyze-template/', {
+        const response = await fetch(`${API_BASE_URL}/api/interpreted-forms/analyze-template/`, {
           method: 'POST',
           body: formData,
         });
@@ -194,7 +195,7 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
       formData.append('person_id', personData.person_id);
       formData.append('templates_data', JSON.stringify(templatesData));
 
-      const response = await fetch('http://localhost:8000/api/interpreted-forms/generate-forms/', {
+      const response = await fetch(`${API_BASE_URL}/api/interpreted-forms/generate-forms/`, {
         method: 'POST',
         body: formData,
       });
@@ -681,7 +682,7 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
                   </div>
                   {batchDownloadUrl && (
                     <a
-                      href={`http://localhost:8000${batchDownloadUrl}`}
+                      href={`${API_BASE_URL}${batchDownloadUrl}`}
                       download
                       className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-slate-900 text-slate-50 hover:bg-slate-900/90 h-10 px-4 py-2 transition-colors space-x-2"
                     >
@@ -732,7 +733,7 @@ export default function InterpretedForm({ deviceId }: InterpretedFormProps) {
                           </div>
                           {doc.success && (
                             <a
-                              href={`http://localhost:8000${doc.download_url}`}
+                              href={`${API_BASE_URL}${doc.download_url}`}
                               download
                               className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-slate-200 bg-white hover:bg-slate-100 hover:text-slate-900 h-9 px-3 transition-colors space-x-2"
                             >

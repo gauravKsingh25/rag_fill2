@@ -50,25 +50,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         startup_warnings.append(f"Pinecone: {e}")
     
-    # Create first user if it doesn't exist
-    try:
-        email = "gaurav@gmail.com"
-        password = "hindustan1"
+    # # Create first user if it doesn't exist
+    # try:
+    #     email = "gaurav@gmail.com"
+    #     password = "hindustan1"
         
-        existing_user = await user_repo.get_user_by_email(email)
-        if not existing_user:
-            hashed_password = get_password_hash(password)
-            user_data = {
-                "email": email,
-                "hashed_password": hashed_password
-            }
-            user_id = await user_repo.create_user(user_data)
-            print(f"✅ Created first user: {email}")
-            print(f"🔐 Login credentials - Email: {email}, Password: {password}")
-        else:
-            print(f"✅ First user already exists: {email}")
-    except Exception as e:
-        print(f"⚠️  Could not create first user: {e}")
+    #     existing_user = await user_repo.get_user_by_email(email)
+    #     if not existing_user:
+    #         hashed_password = get_password_hash(password)
+    #         user_data = {
+    #             "email": email,
+    #             "hashed_password": hashed_password
+    #         }
+    #         user_id = await user_repo.create_user(user_data)
+    #         print(f"✅ Created first user: {email}")
+    #         print(f"🔐 Login credentials - Email: {email}, Password: {password}")
+    #     else:
+    #         print(f"✅ First user already exists: {email}")
+    # except Exception as e:
+    #     print(f"⚠️  Could not create first user: {e}")
     
     # Perform startup cleanup of old files
     try:
@@ -132,6 +132,7 @@ def get_cors_origins():
             "http://localhost:3001",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:3001"
+            "https://rag-fill2.onrender.com/"
         ]
         for origin in dev_origins:
             if origin not in origins:
